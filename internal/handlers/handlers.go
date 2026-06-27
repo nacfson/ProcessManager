@@ -99,7 +99,9 @@ func Render(tmpl *template.Template, w http.ResponseWriter, name string, data an
 	if m, ok := data.(map[string]any); ok {
 		if _, exists := m["ContentHTML"]; !exists {
 			var buf strings.Builder
-			if err := tmpl.ExecuteTemplate(&buf, name+"-content", data); err == nil {
+			if err := tmpl.ExecuteTemplate(&buf, name+"-content", data); err != nil {
+				slog.Error("content template pre-render failed", "name", name+"-content", "error", err)
+			} else {
 				m["ContentHTML"] = template.HTML(buf.String())
 			}
 		}
