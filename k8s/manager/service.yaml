@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: processmanager
+  namespace: nacfson-personal
+spec:
+  selector:
+    app.kubernetes.io/name: processmanager
+  ports:
+    - port: 80
+      targetPort: 8080

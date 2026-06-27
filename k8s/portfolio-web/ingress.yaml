@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portfolio-web
+  namespace: portfolio-web
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: "http://auth-service.nacfson-auth.svc.cluster.local:8080/verify?host=$host"
+    nginx.ingress.kubernetes.io/auth-signin: "https://auth.nacfson.cloud/login?rd=$scheme://$host$request_uri"
+    nginx.ingress.kubernetes.io/auth-response-headers: "X-User-Id,X-User-Email,X-User-Roles"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: portfolio.nacfson.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: portfolio-web
+                port:
+                  number: 8080
+  tls:
+    - hosts:
+        - portfolio.nacfson.cloud
+      secretName: portfolio-tls

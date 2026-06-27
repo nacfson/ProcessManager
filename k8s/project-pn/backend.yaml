@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: project-pn-backend
+  namespace: project-pn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: project-pn-backend
+      app.kubernetes.io/part-of: project-pn
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: project-pn-backend
+        app.kubernetes.io/part-of: project-pn
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        - name: api
+          image: project-pn-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_ADDR
+              value: ":8080"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: DATABASE_URL
+            - name: MIGRATIONS_PATH
+              value: file://db/migrations
+            - name: ENRICH_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_BASE_URL
+            - name: ENRICH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_API_KEY
+            - name: ENRICH_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_MODEL
+            - name: DEFAULT_TARGET_LANG
+              value: "en"
+            - name: DEFAULT_DEFINITION_LANG
+              value: "ko"
+            - name: EMAIL_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: EMAIL_PROVIDER
+            - name: EMAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: EMAIL_FROM
+            - name: APP_PUBLIC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: APP_PUBLIC_URL
+            - name: ALLOWED_ORIGINS
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ALLOWED_ORIGINS
+            - name: SESSION_TTL
+              value: "720h"
+            - name: EMAIL_VERIFICATION_TTL
+              value: "24h"
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30

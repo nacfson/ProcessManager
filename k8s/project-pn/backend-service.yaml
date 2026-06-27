@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: project-pn-backend
+  namespace: project-pn
+spec:
+  selector:
+    app.kubernetes.io/name: project-pn-backend
+    app.kubernetes.io/part-of: project-pn
+  ports:
+    - port: 8080
+      targetPort: 8080

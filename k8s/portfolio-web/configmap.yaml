@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portfolio-web-config
+  namespace: portfolio-web
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  DB_PATH: "/data/portfolio.db"
+  ConnectionStrings__Redis: "redis:6379,abortConnect=false"

@@ -1,0 +1,268 @@
+package auth
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Store persists auth platform data in the shared auth DB.
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+// NewStore creates a Store.
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{pool: pool}
+}
+
+// Migrate creates the auth schema if it does not exist.
+func (s *Store) Migrate(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, schema)
+	return err
+}
+
+// User represents an account.
+type User struct {
+	ID           string
+	Email        string
+	PasswordHash string
+	IsAdmin      bool
+	CreatedAt    time.Time
+}
+
+// UserExists returns true if at least one user exists.
+func (s *Store) UserExists(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users)`).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user exists: %w", err)
+	}
+	return exists, nil
+}
+
+// CreateUser inserts a new user.
+func (s *Store) CreateUser(ctx context.Context, email, passwordHash string, isAdmin bool) (*User, error) {
+	id := uuid.Must(uuid.NewRandom()).String()
+	var u User
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO users (id, email, password_hash, is_admin) VALUES ($1, $2, $3, $4)
+		 RETURNING id, email, password_hash, is_admin, created_at`,
+		id, email, passwordHash, isAdmin,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+	return &u, nil
+}
+
+// GetUserByEmail fetches a user by email.
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	var u User
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, email, password_hash, is_admin, created_at FROM users WHERE email = $1`,
+		email,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	return &u, nil
+}
+
+// CreateSession inserts a session.
+func (s *Store) CreateSession(ctx context.Context, userID, tokenHash string, lifetime time.Duration) (*Session, error) {
+	id := uuid.Must(uuid.NewRandom()).String()
+	expiresAt := time.Now().UTC().Add(lifetime)
+	var sess Session
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO sessions (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)
+		 RETURNING id, user_id, token_hash, expires_at`,
+		id, userID, tokenHash, expiresAt,
+	).Scan(&sess.ID, &sess.UserID, &sess.TokenHash, &sess.ExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+	return &sess, nil
+}
+
+// GetSessionByTokenHash looks up a non-expired session and returns the user details.
+func (s *Store) GetSessionByTokenHash(ctx context.Context, tokenHash string) (*Session, error) {
+	var sess Session
+	err := s.pool.QueryRow(ctx,
+		`SELECT s.id, s.user_id, u.email, u.is_admin, s.token_hash, s.expires_at
+		 FROM sessions s JOIN users u ON s.user_id = u.id
+		 WHERE s.token_hash = $1 AND s.expires_at > now()`,
+		tokenHash,
+	).Scan(&sess.ID, &sess.UserID, &sess.Email, &sess.IsAdmin, &sess.TokenHash, &sess.ExpiresAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get session: %w", err)
+	}
+	return &sess, nil
+}
+
+// DeleteSession removes a session.
+func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
+	return err
+}
+
+// Project represents a registered website project.
+type Project struct {
+	ID          string
+	Name        string
+	Namespace   string
+	DomainHost  string
+	Type        string
+	DBRequired  bool
+	AuthEnabled bool
+	CreatedAt   time.Time
+}
+
+// CreateProject registers a project.
+func (s *Store) CreateProject(ctx context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*Project, error) {
+	id := uuid.Must(uuid.NewRandom()).String()
+	var p Project
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO projects (id, name, namespace, domain_host, type, db_required, auth_enabled)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, name, namespace, domain_host, type, db_required, auth_enabled, created_at`,
+		id, name, namespace, domainHost, projType, dbRequired, authEnabled,
+	).Scan(&p.ID, &p.Name, &p.Namespace, &p.DomainHost, &p.Type, &p.DBRequired, &p.AuthEnabled, &p.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create project: %w", err)
+	}
+	return &p, nil
+}
+
+// GetProjectByHost fetches a project by its domain host.
+func (s *Store) GetProjectByHost(ctx context.Context, host string) (*Project, error) {
+	var p Project
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, namespace, domain_host, type, db_required, auth_enabled, created_at FROM projects WHERE domain_host = $1`,
+		host,
+	).Scan(&p.ID, &p.Name, &p.Namespace, &p.DomainHost, &p.Type, &p.DBRequired, &p.AuthEnabled, &p.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+	return &p, nil
+}
+
+// GetProjectByName fetches a project by name.
+func (s *Store) GetProjectByName(ctx context.Context, name string) (*Project, error) {
+	var p Project
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, namespace, domain_host, type, db_required, auth_enabled, created_at FROM projects WHERE name = $1`,
+		name,
+	).Scan(&p.ID, &p.Name, &p.Namespace, &p.DomainHost, &p.Type, &p.DBRequired, &p.AuthEnabled, &p.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get project by name: %w", err)
+	}
+	return &p, nil
+}
+
+// ListProjects returns all registered projects.
+func (s *Store) ListProjects(ctx context.Context) ([]Project, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, name, namespace, domain_host, type, db_required, auth_enabled, created_at FROM projects ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []Project
+	for rows.Next() {
+		var p Project
+		if err := rows.Scan(&p.ID, &p.Name, &p.Namespace, &p.DomainHost, &p.Type, &p.DBRequired, &p.AuthEnabled, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
+}
+
+// AddProjectMember grants a role on a project.
+func (s *Store) AddProjectMember(ctx context.Context, projectID, userID, role string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)
+		 ON CONFLICT (project_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+		projectID, userID, role)
+	return err
+}
+
+// GetProjectRoles returns the roles a user has on a project.
+func (s *Store) GetProjectRoles(ctx context.Context, projectID, userID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT role FROM project_members WHERE project_id = $1 AND user_id = $2`,
+		projectID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []string
+	for rows.Next() {
+		var r string
+		if err := rows.Scan(&r); err != nil {
+			return nil, err
+		}
+		roles = append(roles, r)
+	}
+	return roles, rows.Err()
+}
+
+const schema = `
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT,
+    is_admin BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT UNIQUE NOT NULL,
+    namespace TEXT NOT NULL,
+    domain_host TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('simple','advanced')),
+    db_required BOOLEAN NOT NULL DEFAULT false,
+    auth_enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')),
+    PRIMARY KEY (project_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+`

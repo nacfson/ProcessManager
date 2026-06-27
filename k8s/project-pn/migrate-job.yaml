@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: project-pn-migrate
+  namespace: project-pn
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: project-pn-migrate
+        app.kubernetes.io/part-of: project-pn
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U project_pn; do
+                echo "Waiting for postgres..."
+                sleep 2
+              done
+      containers:
+        - name: migrate
+          image: project-pn-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["./migrate", "up"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: DATABASE_URL
+            - name: MIGRATIONS_PATH
+              value: file://db/migrations

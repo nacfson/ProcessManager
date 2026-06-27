@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-web
+  namespace: portfolio-web
+spec:
+  selector:
+    app.kubernetes.io/name: portfolio-web
+    app.kubernetes.io/part-of: portfolio-web
+  ports:
+    - port: 8080
+      targetPort: 8080

@@ -1,0 +1,45 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="card">
+    <h2>New Process</h2>
+    <form hx-post="/processes" hx-target="#process-list" hx-swap="beforeend">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" placeholder="portfolio" required>
+
+        <label for="image">Container Image</label>
+        <input type="text" id="image" name="image" placeholder="youruser/portfolioweb:v1" required>
+
+        <div class="row">
+            <div>
+                <label for="port">Port</label>
+                <input type="number" id="port" name="port" value="8080" required>
+            </div>
+            <div>
+                <label for="replicas">Replicas</label>
+                <input type="number" id="replicas" name="replicas" value="1" min="1" required>
+            </div>
+        </div>
+
+        <div class="row">
+            <div>
+                <label for="arch">Target Architecture</label>
+                <select id="arch" name="arch">
+                    <option value="any">Any</option>
+                    <option value="amd64">amd64 (zlUbuntu)</option>
+                    <option value="arm64">arm64 (rlLocal)</option>
+                </select>
+            </div>
+            <div>
+                <label for="memoryLimit">Memory Limit</label>
+                <input type="text" id="memoryLimit" name="memoryLimit" placeholder="256Mi">
+            </div>
+        </div>
+
+        <label for="env">Environment Variables</label>
+        <textarea id="env" name="env" placeholder="KEY=value&#10;ANOTHER=secret"></textarea>
+
+        <button type="submit" class="btn btn-primary" style="margin-top:1rem;">Create Process</button>
+    </form>
+</div>
+{{end}}

@@ -1,0 +1,265 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: enricher-script
+  namespace: project-pn
+data:
+  dictionary_enricher.py: |
+    #!/usr/bin/env python3
+    """Small OpenAI-compatible dictionary enricher for Project PN staging.
+
+    This is a no-key staging fallback for English target vocabulary only. It
+    returns the chat-completions envelope expected by backend/internal/enrich/openai.go,
+    using public dictionary data for English definitions and a public translate
+    endpoint for display text.
+    """
+
+    import json
+    import re
+    import urllib.parse
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    VALID_POS = {
+        "noun",
+        "verb",
+        "adjective",
+        "adverb",
+        "pronoun",
+        "preposition",
+        "conjunction",
+        "interjection",
+        "determiner",
+    }
+
+    POS_MAP = {pos: pos for pos in VALID_POS}
+
+
+    def fetch_json(url: str):
+        request = urllib.request.Request(url, headers={"User-Agent": "ProjectPN-Enricher/1.0"})
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8", "replace"))
+
+
+    def translate(text: str, target: str = "ko", source: str = "en") -> str:
+        text = (text or "").strip()
+        if not text:
+            return ""
+
+        query = urllib.parse.urlencode(
+            {"client": "gtx", "sl": source, "tl": target, "dt": "t", "q": text}
+        )
+        try:
+            data = fetch_json("https://translate.googleapis.com/translate_a/single?" + query)
+            return "".join(part[0] for part in data[0] if part and part[0]).strip()
+        except Exception:
+            return ""
+
+
+    def parse_word(prompt: str) -> str:
+        match = re.search(r'Word:\s*"([^"]+)"', prompt)
+        if match:
+            return match.group(1).strip().lower()
+
+        match = re.search(r"Word:\s*([^\n]+)", prompt)
+        if match:
+            return match.group(1).strip().strip('"').lower()
+        return ""
+
+
+    def parse_target_lang(prompt: str) -> str:
+        match = re.search(r"native_short_definition in language code:\s*([a-zA-Z-]+)", prompt)
+        if match:
+            return match.group(1).lower()
+
+        match = re.search(r"Translate into display language code:\s*([a-zA-Z-]+)", prompt)
+        if match:
+            return match.group(1).lower()
+        return "ko"
+
+
+    def parse_pos_hint(prompt: str) -> str:
+        match = re.search(r'part_of_speech is exactly "([^"]+)"', prompt)
+        if not match:
+            return ""
+        pos = match.group(1).strip().lower()
+        return pos if pos in VALID_POS else ""
+
+
+    def short_definition(definition: str) -> str:
+        definition = (definition or "").strip()
+        if len(definition) <= 80:
+            return definition
+        return definition[:77].rstrip() + "..."
+
+
+    def example_for(word: str, pos: str, index: int) -> str:
+        if pos == "verb":
+            samples = [
+                f"Please {word} the app before you start practicing.",
+                f"They need to {word} the system carefully.",
+                f"The engineer will {word} the settings for the new device.",
+            ]
+        else:
+            samples = [
+                f"The word {word} appears in today's lesson.",
+                f"She wrote a sentence using {word} correctly.",
+                f"Understanding {word} helped him read the passage.",
+            ]
+        return samples[index % len(samples)]
+
+
+    def dictionary_entries(word: str, pos_hint: str = "", target_lang: str = "ko"):
+        raw_entries = []
+        try:
+            raw_entries = fetch_json(
+                "https://api.dictionaryapi.dev/api/v2/entries/en/" + urllib.parse.quote(word)
+            )
+        except Exception:
+            raw_entries = []
+
+        grouped = []
+        for entry in raw_entries if isinstance(raw_entries, list) else []:
+            for meaning in entry.get("meanings", []):
+                pos = POS_MAP.get((meaning.get("partOfSpeech") or "").strip().lower())
+                if not pos or (pos_hint and pos != pos_hint):
+                    continue
+
+                senses = []
+                for item in meaning.get("definitions", [])[:2]:
+                    definition = (item.get("definition") or "").strip()
+                    if not definition:
+                        continue
+
+                    short = short_definition(definition)
+                    examples = []
+                    source_examples = [
+                        (item.get("example") or "").strip(),
+                        example_for(word, pos, 1),
+                        example_for(word, pos, 2),
+                    ]
+                    for index, sentence in enumerate(source_examples):
+                        if not sentence:
+                            continue
+                        examples.append(
+                            {
+                                "sentence": sentence,
+                                "translation": translate(sentence, target_lang),
+                                "difficulty": ["easy", "medium", "hard"][min(index, 2)],
+                            }
+                        )
+
+                    senses.append(
+                        {
+                            "definition": definition,
+                            "short_definition": short,
+                            "cefr_level": "B1",
+                            "native_definition": translate(definition, target_lang),
+                            "native_short_definition": translate(short, target_lang),
+                            "examples": examples[:3],
+                        }
+                    )
+
+                if senses:
+                    grouped.append({"lemma": word, "part_of_speech": pos, "senses": senses})
+
+        if not grouped:
+            pos = pos_hint or "noun"
+            definition = f"A vocabulary item meaning {word}."
+            short = short_definition(definition)
+            sentence = example_for(word, pos, 0)
+            grouped.append(
+                {
+                    "lemma": word,
+                    "part_of_speech": pos,
+                    "senses": [
+                        {
+                            "definition": definition,
+                            "short_definition": short,
+                            "cefr_level": "B1",
+                            "native_definition": translate(definition, target_lang),
+                            "native_short_definition": translate(short, target_lang),
+                            "examples": [
+                                {
+                                    "sentence": sentence,
+                                    "translation": translate(sentence, target_lang),
+                                    "difficulty": "easy",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
+
+        return {"normalized_text": word, "entries": grouped[:3]}
+
+
+    def translate_prompt(prompt: str):
+        target_lang = parse_target_lang(prompt)
+        blocks = re.split(r"\n(?=Sense \d+ definition)", prompt)
+        senses = []
+        for block in blocks[1:] if len(blocks) > 1 else []:
+            definition_match = re.search(r"definition \([^)]+\):\s*(.+)", block)
+            short_match = re.search(r"short_definition \([^)]+\):\s*(.+)", block)
+            examples = re.findall(r"example \d+ \([^)]+\):\s*(.+)", block)
+            definition = definition_match.group(1).strip() if definition_match else ""
+            short = short_match.group(1).strip() if short_match else definition
+            senses.append(
+                {
+                    "definition": translate(definition, target_lang),
+                    "short_definition": translate(short, target_lang),
+                    "examples": [{"translation": translate(example.strip(), target_lang)} for example in examples],
+                }
+            )
+        return {"senses": senses}
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":
+                self.send_json({"status": "ok"})
+                return
+            self.send_error(404)
+
+        def do_POST(self):
+            if self.path != "/chat/completions":
+                self.send_error(404)
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(length).decode("utf-8", "replace"))
+                prompt = "\n".join(
+                    message.get("content", "")
+                    for message in body.get("messages", [])
+                    if message.get("role") == "user"
+                )
+                if "Translate into display language code:" in prompt:
+                    content = translate_prompt(prompt)
+                else:
+                    content = dictionary_entries(parse_word(prompt), parse_pos_hint(prompt), parse_target_lang(prompt))
+
+                self.send_json(
+                    {
+                        "choices": [
+                            {"message": {"role": "assistant", "content": json.dumps(content, ensure_ascii=False)}}
+                        ]
+                    }
+                )
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, status=500)
+
+        def log_message(self, fmt, *args):
+            return
+
+        def send_json(self, payload, status=200):
+            raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+
+    if __name__ == "__main__":
+        ThreadingHTTPServer(("0.0.0.0", 8787), Handler).serve_forever()

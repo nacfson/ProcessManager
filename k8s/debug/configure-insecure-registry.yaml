@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: configure-insecure-registry
+  namespace: kube-system
+spec:
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  hostPID: true
+  hostNetwork: true
+  restartPolicy: Never
+  containers:
+    - name: configure
+      image: alpine:3.19
+      command:
+        - /bin/sh
+        - -c
+        - |
+          apk add --no-cache util-linux >/dev/null 2>&1
+          nsenter -t 1 -m -u -i -n /bin/sh -c '
+            set -e
+            CONFIG=/etc/containerd/config.toml
+            # Remove legacy CRI registry blocks (containerd v1 style) if present.
+            sed -i "/^\\[plugins.\"io.containerd.grpc.v1.cri\".registry.mirrors.\"192.168.219.100:5000\"\\]$/,/^endpoint = \\[\"http:\/\/192.168.219.100:5000\"\\]$/d" "$CONFIG"
+            sed -i "/^\\[plugins.\"io.containerd.grpc.v1.cri\".registry.configs.\"192.168.219.100:5000\".tls\\]$/,/^insecure_skip_verify = true$/d" "$CONFIG"
+            # Set config_path for containerd v2 CRI images plugin.
+            sed -i "s/\\[plugins.\x27io.containerd.cri.v1.images\x27.registry\\]/[plugins.\x27io.containerd.cri.v1.images\x27.registry]\n      config_path = \"\/etc\/containerd\/certs.d\"/" "$CONFIG"
+            # Ensure only one config_path line exists.
+            awk "\/\\[plugins.\x27io.containerd.cri.v1.images\x27.registry\\]/{found=1} found && /^      config_path = /{if(seen){delete_line=1} seen=1} delete_line{delete_line=0; next} {print}" "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
+            mkdir -p /etc/containerd/certs.d/192.168.219.100:5000
+            printf "%s" "c2VydmVyID0gImh0dHA6Ly8xOTIuMTY4LjIxOS4xMDA6NTAwMCIKCltob3N0LiJodHRwOi8vMTkyLjE2OC4yMTkuMTAwOjUwMDAiXQogIGNhcGFiaWxpdGllcyA9IFsicHVsbCIsICJyZXNvbHZlIl0K" | base64 -d > /etc/containerd/certs.d/192.168.219.100:5000/hosts.toml
+            systemctl restart containerd
+            echo "configured insecure registry for containerd v2"
+          '
+      securityContext:
+        privileged: true

@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: auth-service
+  namespace: nacfson-auth
+  annotations:
+    cert-manager.io/cluster-issuer: "selfsigned-cluster-issuer"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - auth.nacfson.cloud
+      secretName: auth-service-tls
+  rules:
+    - host: auth.nacfson.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8080

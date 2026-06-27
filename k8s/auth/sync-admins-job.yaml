@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sync-admins
+  namespace: nacfson-auth
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        - name: sync-admins
+          image: 192.168.219.100:5000/processmanager:latest
+          imagePullPolicy: Always
+          command: ["./sync-admins"]
+          envFrom:
+            - secretRef:
+                name: auth-db-secrets
+          volumeMounts:
+            - name: admin-users
+              mountPath: /etc/auth
+              readOnly: true
+      volumes:
+        - name: admin-users
+          secret:
+            secretName: admin-users
