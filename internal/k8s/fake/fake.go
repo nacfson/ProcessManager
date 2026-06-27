@@ -11,6 +11,10 @@ import (
 // Client implements k8s.ClientInterface in memory.
 type Client struct {
 	processes []models.Process
+	// Logs overrides the default fake log output when non-empty.
+	Logs string
+	// ErrListProcesses, if set, is returned by ListProcesses.
+	ErrListProcesses error
 }
 
 // NewClient creates an empty fake client.
@@ -19,6 +23,9 @@ func NewClient() k8s.ClientInterface {
 }
 
 func (c *Client) ListProcesses(ctx context.Context, namespace string) ([]models.Process, error) {
+	if c.ErrListProcesses != nil {
+		return nil, c.ErrListProcesses
+	}
 	return c.processes, nil
 }
 
@@ -47,5 +54,8 @@ func (c *Client) DeleteProcess(ctx context.Context, namespace, name string) erro
 }
 
 func (c *Client) GetPodLogs(ctx context.Context, namespace, name string) (string, error) {
+	if c.Logs != "" {
+		return c.Logs, nil
+	}
 	return fmt.Sprintf("fake logs for %s/%s", namespace, name), nil
 }

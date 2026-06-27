@@ -2,6 +2,7 @@ package projects
 
 import (
 	"context"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -85,7 +86,8 @@ func TestCreateRequiresAuthStore(t *testing.T) {
 }
 
 type fakeAuthStore struct {
-	created *auth.Project
+	created       *auth.Project
+	ErrListProjects error
 }
 
 func (s *fakeAuthStore) CreateProject(_ context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*auth.Project, error) {
@@ -103,6 +105,9 @@ func (s *fakeAuthStore) CreateProject(_ context.Context, name, namespace, domain
 }
 
 func (s *fakeAuthStore) ListProjects(_ context.Context) ([]auth.Project, error) {
+	if s.ErrListProjects != nil {
+		return nil, s.ErrListProjects
+	}
 	if s.created == nil {
 		return nil, nil
 	}
@@ -115,6 +120,28 @@ func (s *fakeAuthStore) ListUsers(_ context.Context) ([]auth.User, error) {
 
 func (s *fakeAuthStore) ListAuditEvents(_ context.Context, _ int) ([]auth.AuditEvent, error) {
 	return nil, nil
+}
+
+func TestListSurfacesError(t *testing.T) {
+	store := &fakeAuthStore{ErrListProjects: errors.New("list failed")}
+	deps := handlers.Deps{
+		Namespace: "test-ns",
+		Domain:    "test.local",
+		AuthStore: store,
+		Tmpl:      mustTemplate(t),
+	}
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Failed to load projects") {
+		t.Errorf("expected error message in body, got %q", rec.Body.String())
+	}
 }
 
 func TestCreateHappyPath(t *testing.T) {

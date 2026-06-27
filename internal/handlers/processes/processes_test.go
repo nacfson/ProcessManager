@@ -194,11 +194,39 @@ func TestLogStream(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 	ct := rec.Header().Get("Content-Type")
-	if !strings.HasPrefix(ct, "text/plain") {
-		t.Errorf("expected text/plain content type, got %q", ct)
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("expected text/html content type, got %q", ct)
 	}
 	if !strings.Contains(rec.Body.String(), "fake logs for test-ns/app") {
 		t.Errorf("missing logs")
+	}
+}
+
+func TestLogStreamEscapesHTML(t *testing.T) {
+	fc := &fake.Client{Logs: "<script>alert('xss')</script>"}
+	deps := handlers.Deps{
+		Client:    fc,
+		Namespace: "test-ns",
+		Domain:    "test.local",
+		Tmpl:      mustTemplate(t),
+	}
+	mustCreate(t, deps, models.Process{Name: "app", Image: "img:v1", Namespace: "test-ns"})
+
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/logs/stream", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "<script>") {
+		t.Errorf("expected logs to be HTML-escaped, got %q", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Errorf("expected escaped script tag, got %q", body)
 	}
 }
 

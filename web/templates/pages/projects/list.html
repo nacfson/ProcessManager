@@ -2,6 +2,11 @@
 
 {{define "pages/projects/list-content"}}
 {{template "components/page-header" dict "Title" "Projects"}}
+{{if .Error}}
+<div class="card">
+    <p class="status error">{{.Error}}</p>
+</div>
+{{end}}
 <div class="card">
     {{template "pages/projects/form-fields" .}}
 </div>

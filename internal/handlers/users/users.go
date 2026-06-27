@@ -1,6 +1,7 @@
 package users
 
 import (
+	"log/slog"
 	"net/http"
 
 	"processmanager/internal/handlers"
@@ -28,16 +29,21 @@ func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 // List shows all users.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var users []any
+	var errMsg string
 	if h.deps.AuthStore != nil {
 		if list, err := h.deps.AuthStore.ListUsers(r.Context()); err == nil {
 			for _, u := range list {
 				users = append(users, u)
 			}
+		} else {
+			slog.Error("list users failed", "error", err)
+			errMsg = "Failed to load users"
 		}
 	}
 	handlers.Render(h.deps.Tmpl, w, "pages/users/list", map[string]any{
 		"Title": "Users",
 		"Nav":   "users",
 		"Users": users,
+		"Error": errMsg,
 	})
 }

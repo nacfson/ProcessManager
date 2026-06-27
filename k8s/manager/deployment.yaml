@@ -43,6 +43,7 @@ spec:
                 secretKeyRef:
                   name: shared-app-db-secrets
                   key: DATABASE_URL
+                  optional: true
           args:
             - -namespace=nacfson-personal
             - -domain=nacfson.cloud

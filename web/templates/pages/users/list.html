@@ -2,6 +2,11 @@
 
 {{define "pages/users/list-content"}}
 {{template "components/page-header" dict "Title" "Users"}}
+{{if .Error}}
+<div class="card">
+    <p class="status error">{{.Error}}</p>
+</div>
+{{end}}
 <div class="card">
     {{if .Users}}
     <table>

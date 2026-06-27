@@ -77,8 +77,9 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error)
 }
 
 // ListUsers returns all users ordered by creation time.
+// It intentionally does not load password hashes.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, email, password_hash, is_admin, created_at FROM users ORDER BY created_at`)
+	rows, err := s.pool.Query(ctx, `SELECT id, email, is_admin, created_at FROM users ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
@@ -87,7 +88,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

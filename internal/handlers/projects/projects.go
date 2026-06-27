@@ -32,10 +32,12 @@ func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 // List shows all projects.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var projects []any
+	var errMsg string
 	if h.deps.AuthStore != nil {
 		list, err := h.deps.AuthStore.ListProjects(r.Context())
 		if err != nil {
 			slog.Error("list projects failed", "error", err)
+			errMsg = "Failed to load projects"
 		} else {
 			for _, p := range list {
 				projects = append(projects, p)
@@ -46,6 +48,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		"Title":    "Projects",
 		"Nav":      "projects",
 		"Projects": projects,
+		"Error":    errMsg,
 	})
 }
 

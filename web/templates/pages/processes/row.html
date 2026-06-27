@@ -3,7 +3,7 @@
     <td>{{.Image}}</td>
     <td>{{.Arch}}</td>
     <td>
-        <span hx-get="/processes/{{.Name}}/status" hx-trigger="every 3s" hx-swap="outerHTML">
+        <span hx-get="/processes/{{.Name}}/status" hx-trigger="every 3s" hx-swap="innerHTML">
             {{template "pages/processes/status" dict "Status" "pending" "Label" "..."}}
         </span>
     </td>

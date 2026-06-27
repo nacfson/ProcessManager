@@ -2,6 +2,11 @@
 
 {{define "pages/home/home-content"}}
 {{template "components/page-header" dict "Title" "Dashboard"}}
+{{if .Error}}
+<div class="card">
+    <p class="status error">{{.Error}}</p>
+</div>
+{{end}}
 <div class="row">
     <div class="card">
         <h3>{{.ProcessCount}}</h3>

@@ -2,6 +2,7 @@ package processes
 
 import (
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 
@@ -127,7 +128,7 @@ func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// LogStream returns plain log text for HTMX polling.
+// LogStream returns HTML-escaped log text for HTMX polling.
 func (h *Handler) LogStream(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	logs, err := h.deps.Client.GetPodLogs(r.Context(), h.deps.Namespace, name)
@@ -135,8 +136,8 @@ func (h *Handler) LogStream(w http.ResponseWriter, r *http.Request) {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(logs))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html.EscapeString(logs)))
 }
 
 // Status returns a status badge fragment for polling.
