@@ -18,6 +18,7 @@ import (
 	"processmanager/internal/handlers/settings"
 	"processmanager/internal/handlers/users"
 	"processmanager/internal/k8s"
+	"processmanager/internal/k8s/fake"
 )
 
 func main() {
@@ -29,9 +30,12 @@ func main() {
 	authHost := flag.String("auth-host", "auth.nacfson.cloud", "auth service host")
 	flag.Parse()
 
-	client, err := k8s.NewClient()
-	if err != nil {
-		log.Fatalf("failed to create k8s client: %v", err)
+	var client k8s.ClientInterface
+	if c, err := k8s.NewClient(); err == nil {
+		client = c
+	} else {
+		log.Printf("warning: failed to create k8s client (%v); using in-memory fake client", err)
+		client = fake.NewClient()
 	}
 
 	tmpl, err := handlers.NewTemplate()
