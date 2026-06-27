@@ -23,9 +23,9 @@ func (c *Client) ListProcesses(ctx context.Context, namespace string) ([]models.
 }
 
 func (c *Client) GetProcess(ctx context.Context, namespace, name string) (*models.Process, error) {
-	for _, p := range c.processes {
+	for i, p := range c.processes {
 		if p.Name == name && p.Namespace == namespace {
-			return &p, nil
+			return &c.processes[i], nil
 		}
 	}
 	return nil, models.ErrProcessNotFound
