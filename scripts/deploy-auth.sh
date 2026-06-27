@@ -30,6 +30,11 @@ kubectl apply -f k8s/auth/postgres.yaml
 kubectl apply -f k8s/data/secret.yaml
 kubectl apply -f k8s/data/postgres.yaml
 
+echo "==> Copying shared app DB secret into manager namespace"
+kubectl get secret shared-app-db-secrets -n nacfson-data -o yaml | \
+  sed 's/namespace: nacfson-data/namespace: nacfson-personal/' | \
+  kubectl apply -f -
+
 echo "==> Applying auth service"
 kubectl apply -f k8s/auth/selfsigned-clusterissuer.yaml
 kubectl apply -f k8s/auth/service.yaml
