@@ -1,0 +1,3 @@
+<button type="{{or .Type "button"}}" class="btn {{or .Class "btn-primary"}}" {{if .HXPost}}hx-post="{{.HXPost}}"{{end}} {{if .HXGet}}hx-get="{{.HXGet}}"{{end}} {{if .HXTarget}}hx-target="{{.HXTarget}}"{{end}} {{if .HXSwap}}hx-swap="{{.HXSwap}}"{{end}} {{if .HXConfirm}}hx-confirm="{{.HXConfirm}}"{{end}}>
+    {{.Label}}
+</button>

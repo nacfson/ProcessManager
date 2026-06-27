@@ -1,0 +1,5 @@
+<div>
+    <label for="{{.ID}}">{{.Label}}</label>
+    {{.Input}}
+    {{if .Error}}<div style="color:var(--danger);font-size:0.875rem;margin-top:0.25rem;">{{.Error}}</div>{{end}}
+</div>

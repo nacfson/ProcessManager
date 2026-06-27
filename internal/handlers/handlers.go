@@ -30,7 +30,9 @@ type Deps struct {
 // NewTemplate loads all templates under web/templates recursively and registers helpers.
 func NewTemplate() (*template.Template, error) {
 	root := template.New("").Funcs(template.FuncMap{
-		"add": func(a, b int) int { return a + b },
+		"add":   func(a, b int) int { return a + b },
+		"lower": strings.ToLower,
+		"upper": strings.ToUpper,
 		"dict": func(values ...any) (map[string]any, error) {
 			if len(values)%2 != 0 {
 				return nil, fmt.Errorf("dict expects even number of arguments")

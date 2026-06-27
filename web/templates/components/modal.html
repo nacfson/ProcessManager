@@ -1,0 +1,10 @@
+<div class="modal-overlay">
+    <div class="modal">
+        <h3>{{.Title}}</h3>
+        <p>{{.Message}}</p>
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem;">
+            <button class="btn" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+            <button class="btn btn-danger" hx-post="{{.ConfirmURL}}" hx-target="{{.Target}}" hx-swap="{{.Swap}}">{{.ConfirmLabel}}</button>
+        </div>
+    </div>
+</div>
