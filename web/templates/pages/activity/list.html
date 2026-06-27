@@ -2,6 +2,11 @@
 
 {{define "pages/activity/list-content"}}
 {{template "components/page-header" dict "Title" "Activity"}}
+{{if .Error}}
+<div class="card">
+    <p class="status error">{{.Error}}</p>
+</div>
+{{end}}
 <div class="card">
     {{if .Events}}
     <table>
@@ -12,7 +17,7 @@
             {{end}}
         </tbody>
     </table>
-    {{else}}
+    {{else if not .Error}}
         {{template "components/empty-state" dict "Message" "No activity yet."}}
     {{end}}
 </div>

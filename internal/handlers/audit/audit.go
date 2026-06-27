@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"log/slog"
 	"net/http"
 
 	"processmanager/internal/handlers"
@@ -28,8 +29,13 @@ func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 // List shows recent activity.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var events []any
+	var errMsg string
 	if h.deps.AuthStore != nil {
-		if list, err := h.deps.AuthStore.ListAuditEvents(r.Context(), 50); err == nil {
+		list, err := h.deps.AuthStore.ListAuditEvents(r.Context(), 50)
+		if err != nil {
+			slog.Error("list audit events failed", "error", err)
+			errMsg = "Failed to load activity"
+		} else {
 			for _, e := range list {
 				events = append(events, e)
 			}
@@ -39,5 +45,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		"Title":  "Activity",
 		"Nav":    "activity",
 		"Events": events,
+		"Error":  errMsg,
 	})
 }
