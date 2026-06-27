@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"errors"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -26,5 +29,101 @@ func TestRequireAuthWithoutMiddleware(t *testing.T) {
 	h(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusOK || !called {
 		t.Errorf("expected handler to be called without middleware, got %d", rec.Code)
+	}
+}
+
+func TestRenderSetsContentTypeAndSucceeds(t *testing.T) {
+	tmpl := template.Must(template.New("ok").Parse("<p>{{.}}</p>"))
+	rec := httptest.NewRecorder()
+	Render(tmpl, rec, "ok", "hello")
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if ct != "text/html; charset=utf-8" {
+		t.Errorf("expected text/html content type, got %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "<p>hello</p>") {
+		t.Errorf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestRenderFragmentSetsContentTypeAndSucceeds(t *testing.T) {
+	tmpl := template.Must(template.New("frag").Parse("<span>{{.}}</span>"))
+	rec := httptest.NewRecorder()
+	RenderFragment(tmpl, rec, "frag", "world")
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if ct != "text/html; charset=utf-8" {
+		t.Errorf("expected text/html content type, got %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "<span>world</span>") {
+		t.Errorf("unexpected body: %q", rec.Body.String())
+	}
+}
+
+func TestRenderKeepsContentTypeOnTemplateError(t *testing.T) {
+	// Template that always fails to execute.
+	tmpl := template.Must(template.New("bad").Parse("{{.MissingMethod}}"))
+	rec := httptest.NewRecorder()
+	Render(tmpl, rec, "bad", struct{}{})
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if ct != "text/html; charset=utf-8" {
+		t.Errorf("expected text/html content type preserved on error, got %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "Internal Server Error") {
+		t.Errorf("expected user-safe error body, got %q", rec.Body.String())
+	}
+}
+
+func TestRenderFragmentKeepsContentTypeOnTemplateError(t *testing.T) {
+	tmpl := template.Must(template.New("bad").Parse("{{.MissingMethod}}"))
+	rec := httptest.NewRecorder()
+	RenderFragment(tmpl, rec, "bad", struct{}{})
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if ct != "text/html; charset=utf-8" {
+		t.Errorf("expected text/html content type preserved on error, got %q", ct)
+	}
+}
+
+func TestRenderErrorReturnsUserSafeLabelAndStatus(t *testing.T) {
+	rec := httptest.NewRecorder()
+	RenderError(rec, errors.New("database connection refused"), http.StatusBadRequest)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if ct != "text/plain; charset=utf-8" {
+		t.Errorf("expected text/plain content type, got %q", ct)
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "Error" {
+		t.Errorf("expected concise user-safe label 'Error', got %q", body)
+	}
+}
+
+func TestRenderErrorHandlesNilError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	RenderError(rec, nil, http.StatusInternalServerError)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected status 500, got %d", rec.Code)
+	}
+	body := strings.TrimSpace(rec.Body.String())
+	if body != "Error" {
+		t.Errorf("expected concise user-safe label 'Error', got %q", body)
 	}
 }

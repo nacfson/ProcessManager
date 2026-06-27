@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 
 	"processmanager/internal/auth"
 	"processmanager/internal/k8s"
+	"processmanager/web/templates"
 )
 
 // Deps carries shared dependencies for all domain handlers.
@@ -26,19 +25,6 @@ type Deps struct {
 	Domain    string
 	AuthMW    *auth.Middleware
 	Tmpl      *template.Template
-}
-
-// templateRoot returns the absolute path to the web/templates directory.
-// It derives the project root from the location of this source file so tests
-// work regardless of the current working directory.
-func templateRoot() (string, error) {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "", fmt.Errorf("unable to determine source path")
-	}
-	// internal/handlers/handlers.go -> project root -> web/templates
-	root := filepath.Dir(filepath.Dir(filepath.Dir(file)))
-	return filepath.Join(root, "web", "templates"), nil
 }
 
 // NewTemplate loads all templates under web/templates recursively and registers helpers.
@@ -61,23 +47,20 @@ func NewTemplate() (*template.Template, error) {
 		},
 	})
 
-	tmplDir, err := templateRoot()
+	tmplFS, err := fs.Sub(templates.FS, ".")
 	if err != nil {
-		return nil, fmt.Errorf("locate templates: %w", err)
+		return nil, fmt.Errorf("open templates fs: %w", err)
 	}
 
-	err = filepath.WalkDir(tmplDir, func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(tmplFS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".html") {
 			return err
 		}
-		b, err := os.ReadFile(path)
+		b, err := fs.ReadFile(tmplFS, path)
 		if err != nil {
 			return err
 		}
-		name := filepath.ToSlash(path)
-		name = strings.TrimPrefix(name, filepath.ToSlash(tmplDir)+"/")
-		name = strings.TrimPrefix(name, "/")
-		name = strings.TrimSuffix(name, ".html")
+		name := strings.TrimSuffix(path, ".html")
 		_, err = root.New(name).Parse(string(b))
 		return err
 	})
@@ -95,25 +78,33 @@ func RequireAuth(amw *auth.Middleware, next http.HandlerFunc) http.HandlerFunc {
 	return amw.RequireAuth(next).ServeHTTP
 }
 
+// render writes a template to the response with the given content type.
+// It is the shared implementation for Render and RenderFragment.
+func render(w http.ResponseWriter, contentType string, tmpl *template.Template, name string, data any) {
+	w.Header().Set("Content-Type", contentType)
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
+		slog.Error("template execution failed", "name", name, "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprint(w, "Internal Server Error")
+	}
+}
+
 // Render writes a full HTML page.
 func Render(tmpl *template.Template, w http.ResponseWriter, name string, data any) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "text/html; charset=utf-8", tmpl, name, data)
 }
 
 // RenderFragment writes an HTMX partial.
 func RenderFragment(tmpl *template.Template, w http.ResponseWriter, name string, data any) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	render(w, "text/html; charset=utf-8", tmpl, name, data)
 }
 
-// RenderError returns a concise error as plain text or HTML fragment.
+// RenderError returns a concise, user-safe error label.
+// The full error is logged server-side for debugging via SSH/kubectl.
+// A nil error is treated as an unspecified error.
 func RenderError(w http.ResponseWriter, err error, code int) {
-	w.Header().Set("Content-Type", "text/plain")
+	slog.Error("handler error", "code", code, "error", err)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(code)
-	fmt.Fprint(w, err.Error())
+	_, _ = fmt.Fprint(w, "Error")
 }
