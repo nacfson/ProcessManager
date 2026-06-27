@@ -2,6 +2,7 @@ package projects
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -33,7 +34,10 @@ func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var projects []any
 	if h.deps.AuthStore != nil {
-		if list, err := h.deps.AuthStore.ListProjects(r.Context()); err == nil {
+		list, err := h.deps.AuthStore.ListProjects(r.Context())
+		if err != nil {
+			slog.Error("list projects failed", "error", err)
+		} else {
 			for _, p := range list {
 				projects = append(projects, p)
 			}
@@ -68,7 +72,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		projType = "simple"
 	}
 	dbRequired := r.FormValue("dbRequired") == "on"
-	authEnabled := r.FormValue("authEnabled") != "off"
+	authEnabled := r.FormValue("authEnabled") == "on"
 
 	if name == "" || namespace == "" || domainHost == "" {
 		handlers.RenderError(w, fmt.Errorf("name, namespace, and domain host are required"), http.StatusBadRequest)
@@ -80,10 +84,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.deps.AuthStore.CreateProject(r.Context(), name, namespace, domainHost, projType, dbRequired, authEnabled)
-	if err != nil {
+	if _, err := h.deps.AuthStore.CreateProject(r.Context(), name, namespace, domainHost, projType, dbRequired, authEnabled); err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	handlers.RenderFragment(h.deps.Tmpl, w, "pages/projects/row", p)
+	http.Redirect(w, r, "/projects", http.StatusFound)
 }

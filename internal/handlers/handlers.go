@@ -14,10 +14,16 @@ import (
 	"processmanager/web/templates"
 )
 
+// ProjectStore abstracts project persistence for handler testing.
+type ProjectStore interface {
+	CreateProject(ctx context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*auth.Project, error)
+	ListProjects(ctx context.Context) ([]auth.Project, error)
+}
+
 // Deps carries shared dependencies for all domain handlers.
 type Deps struct {
 	Client      k8s.ClientInterface
-	AuthStore   *auth.Store
+	AuthStore   ProjectStore
 	Provisioner interface {
 		ListDatabases(ctx context.Context) ([]string, error)
 	}
