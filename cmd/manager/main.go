@@ -28,14 +28,23 @@ func main() {
 	authDSN := flag.String("auth-dsn", os.Getenv("AUTH_DATABASE_URL"), "auth database DSN")
 	sharedDSN := flag.String("shared-dsn", os.Getenv("SHARED_DATABASE_URL"), "shared app database DSN")
 	authHost := flag.String("auth-host", "auth.nacfson.cloud", "auth service host")
+	fakeK8s := flag.Bool("fake-k8s", false, "use an in-memory fake Kubernetes client")
 	flag.Parse()
 
+	useFake := *fakeK8s || os.Getenv("USE_FAKE_K8S") == "true"
+
 	var client k8s.ClientInterface
-	if c, err := k8s.NewClient(); err == nil {
-		client = c
-	} else {
-		log.Printf("warning: failed to create k8s client (%v); using in-memory fake client", err)
+	if useFake {
+		log.Println("=================================================================")
+		log.Println("RUNNING WITH FAKE K8S CLIENT")
+		log.Println("=================================================================")
 		client = fake.NewClient()
+	} else {
+		c, err := k8s.NewClient()
+		if err != nil {
+			log.Fatalf("failed to create k8s client: %v", err)
+		}
+		client = c
 	}
 
 	tmpl, err := handlers.NewTemplate()
