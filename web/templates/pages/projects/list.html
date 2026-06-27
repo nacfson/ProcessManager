@@ -13,11 +13,10 @@
         <tbody id="project-list">
             {{range .Projects}}
                 {{template "pages/projects/row" .}}
+            {{else}}
+                <tr id="project-list-empty"><td colspan="6">{{template "components/empty-state" dict "Message" "No projects yet."}}</td></tr>
             {{end}}
         </tbody>
     </table>
-    {{if not .Projects}}
-        {{template "components/empty-state" dict "Message" "No projects yet."}}
-    {{end}}
 </div>
 {{end}}

@@ -80,5 +80,5 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	handlers.RenderFragment(h.deps.Tmpl, w, "pages/projects/row", p)
+	handlers.RenderFragment(h.deps.Tmpl, w, "pages/projects/create-response", p)
 }

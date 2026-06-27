@@ -141,6 +141,9 @@ func TestCreateHappyPath(t *testing.T) {
 	if !strings.Contains(body, "portfolio") {
 		t.Errorf("expected response body to contain project name")
 	}
+	if !strings.Contains(body, "hx-swap-oob=\"delete:#project-list-empty\"") {
+		t.Errorf("expected response body to contain OOB delete for #project-list-empty")
+	}
 	if rec.Header().Get("Location") != "" {
 		t.Errorf("expected no redirect, got Location %q", rec.Header().Get("Location"))
 	}
