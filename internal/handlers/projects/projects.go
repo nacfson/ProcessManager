@@ -22,7 +22,6 @@ func New(deps handlers.Deps) *Handler {
 // RegisterRoutes registers project routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /projects", h.require(h.List))
-	mux.HandleFunc("GET /projects/new", h.require(h.NewForm))
 	mux.HandleFunc("POST /projects", h.require(h.Create))
 }
 
@@ -47,14 +46,6 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		"Title":    "Projects",
 		"Nav":      "projects",
 		"Projects": projects,
-	})
-}
-
-// NewForm shows the create form.
-func (h *Handler) NewForm(w http.ResponseWriter, r *http.Request) {
-	handlers.Render(h.deps.Tmpl, w, "pages/projects/form", map[string]any{
-		"Title": "New Project",
-		"Nav":   "projects",
 	})
 }
 
@@ -84,9 +75,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.deps.AuthStore.CreateProject(r.Context(), name, namespace, domainHost, projType, dbRequired, authEnabled); err != nil {
+	p, err := h.deps.AuthStore.CreateProject(r.Context(), name, namespace, domainHost, projType, dbRequired, authEnabled)
+	if err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/projects", http.StatusFound)
+	handlers.RenderFragment(h.deps.Tmpl, w, "pages/projects/row", p)
 }

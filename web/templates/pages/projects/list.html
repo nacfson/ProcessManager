@@ -1,9 +1,11 @@
 {{template "components/layout" .}}
 
 {{define "pages/projects/list-content"}}
-{{template "components/page-header" dict "Title" "Projects" "Action" "New Project" "Href" "/projects/new"}}
+{{template "components/page-header" dict "Title" "Projects"}}
 <div class="card">
-    {{if .Projects}}
+    {{template "pages/projects/form-fields" .}}
+</div>
+<div class="card">
     <table>
         <thead>
             <tr><th>Name</th><th>Namespace</th><th>Domain Host</th><th>Type</th><th>DB</th><th>Auth</th></tr>
@@ -14,7 +16,7 @@
             {{end}}
         </tbody>
     </table>
-    {{else}}
+    {{if not .Projects}}
         {{template "components/empty-state" dict "Message" "No projects yet."}}
     {{end}}
 </div>

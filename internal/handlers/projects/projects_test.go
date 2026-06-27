@@ -33,33 +33,6 @@ func TestListRenders(t *testing.T) {
 	}
 }
 
-func TestNewFormRenders(t *testing.T) {
-	deps := handlers.Deps{
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
-	}
-	h := New(deps)
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/new", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "New Project") {
-		t.Errorf("missing page title")
-	}
-	if !strings.Contains(body, `action="/projects"`) {
-		t.Errorf("missing create form")
-	}
-	if strings.Contains(body, `hx-post="/projects"`) {
-		t.Errorf("form should not use htmx submission")
-	}
-}
-
 func TestCreateValidationError(t *testing.T) {
 	deps := handlers.Deps{
 		Namespace: "test-ns",
@@ -161,11 +134,15 @@ func TestCreateHappyPath(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusFound {
-		t.Fatalf("expected redirect 302, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected row fragment 200, got %d", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "/projects" {
-		t.Errorf("expected redirect to /projects, got %q", loc)
+	body := rec.Body.String()
+	if !strings.Contains(body, "portfolio") {
+		t.Errorf("expected response body to contain project name")
+	}
+	if rec.Header().Get("Location") != "" {
+		t.Errorf("expected no redirect, got Location %q", rec.Header().Get("Location"))
 	}
 	if store.created == nil {
 		t.Fatalf("expected project to be created")
