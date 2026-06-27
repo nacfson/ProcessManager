@@ -29,6 +29,15 @@ const (
 	NameLabel      = "app.kubernetes.io/name"
 )
 
+// ClientInterface is the surface used by HTTP handlers.
+type ClientInterface interface {
+	ListProcesses(ctx context.Context, namespace string) ([]models.Process, error)
+	GetProcess(ctx context.Context, namespace, name string) (*models.Process, error)
+	CreateProcess(ctx context.Context, p models.Process, domain string) error
+	DeleteProcess(ctx context.Context, namespace, name string) error
+	GetPodLogs(ctx context.Context, namespace, name string) (string, error)
+}
+
 // Client wraps a Kubernetes clientset for managing processes.
 type Client struct {
 	clientset *kubernetes.Clientset

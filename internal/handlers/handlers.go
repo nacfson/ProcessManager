@@ -1,187 +1,119 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"processmanager/internal/auth"
 	"processmanager/internal/k8s"
-	"processmanager/internal/models"
 )
 
-// Handler holds HTTP handlers for the dashboard.
-type Handler struct {
-	client    *k8s.Client
-	namespace string
-	domain    string
-	tmpl      *template.Template
-	authMW    *auth.Middleware
+// Deps carries shared dependencies for all domain handlers.
+type Deps struct {
+	Client    k8s.ClientInterface
+	AuthStore *auth.Store
+	Provisioner interface {
+		ListDatabases(ctx context.Context) ([]string, error)
+	}
+	Namespace string
+	Domain    string
+	AuthMW    *auth.Middleware
+	Tmpl      *template.Template
 }
 
-// New creates a new Handler.
-func New(client *k8s.Client, namespace, domain string, authMW *auth.Middleware) (*Handler, error) {
-	tmpl, err := template.New("").Funcs(template.FuncMap{
+// templateRoot returns the absolute path to the web/templates directory.
+// It derives the project root from the location of this source file so tests
+// work regardless of the current working directory.
+func templateRoot() (string, error) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", fmt.Errorf("unable to determine source path")
+	}
+	// internal/handlers/handlers.go -> project root -> web/templates
+	root := filepath.Dir(filepath.Dir(filepath.Dir(file)))
+	return filepath.Join(root, "web", "templates"), nil
+}
+
+// NewTemplate loads all templates under web/templates recursively and registers helpers.
+func NewTemplate() (*template.Template, error) {
+	root := template.New("").Funcs(template.FuncMap{
 		"add": func(a, b int) int { return a + b },
-	}).ParseGlob("web/templates/*.html")
+		"dict": func(values ...any) (map[string]any, error) {
+			if len(values)%2 != 0 {
+				return nil, fmt.Errorf("dict expects even number of arguments")
+			}
+			m := make(map[string]any, len(values)/2)
+			for i := 0; i < len(values); i += 2 {
+				key, ok := values[i].(string)
+				if !ok {
+					return nil, fmt.Errorf("dict keys must be strings")
+				}
+				m[key] = values[i+1]
+			}
+			return m, nil
+		},
+	})
+
+	tmplDir, err := templateRoot()
+	if err != nil {
+		return nil, fmt.Errorf("locate templates: %w", err)
+	}
+
+	err = filepath.WalkDir(tmplDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".html") {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(path)
+		name = strings.TrimPrefix(name, filepath.ToSlash(tmplDir)+"/")
+		name = strings.TrimPrefix(name, "/")
+		name = strings.TrimSuffix(name, ".html")
+		_, err = root.New(name).Parse(string(b))
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	return &Handler{
-		client:    client,
-		namespace: namespace,
-		domain:    domain,
-		tmpl:      tmpl,
-		authMW:    authMW,
-	}, nil
+	return root, nil
 }
 
-// RegisterRoutes registers all routes.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	require := func(next http.HandlerFunc) http.HandlerFunc {
-		if h.authMW == nil {
-			return next
-		}
-		return h.authMW.RequireAuth(next).ServeHTTP
+// RequireAuth wraps a handler with auth when middleware is present.
+func RequireAuth(amw *auth.Middleware, next http.HandlerFunc) http.HandlerFunc {
+	if amw == nil {
+		return next
 	}
-
-	mux.HandleFunc("GET /", require(h.List))
-	mux.HandleFunc("GET /processes/new", require(h.NewForm))
-	mux.HandleFunc("POST /processes", require(h.Create))
-	mux.HandleFunc("POST /processes/{name}/delete", require(h.Delete))
-	mux.HandleFunc("GET /processes/{name}/logs", require(h.Logs))
-	mux.HandleFunc("GET /healthz", h.Healthz)
+	return amw.RequireAuth(next).ServeHTTP
 }
 
-// List shows all processes.
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	processes, err := h.client.ListProcesses(r.Context(), h.namespace)
-	if err != nil {
-		h.renderError(w, err)
-		return
-	}
-	for i := range processes {
-		processes[i].PublicURL = fmt.Sprintf("https://%s.%s", processes[i].Name, h.domain)
-	}
-	data := map[string]any{
-		"Namespace": h.namespace,
-		"Domain":    h.domain,
-		"Processes": processes,
-	}
-	h.render(w, "list.html", data)
-}
-
-// NewForm shows the create form.
-func (h *Handler) NewForm(w http.ResponseWriter, r *http.Request) {
-	h.render(w, "form.html", map[string]any{
-		"Namespace": h.namespace,
-		"Domain":    h.domain,
-	})
-}
-
-// Create handles process creation.
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		h.renderError(w, err)
-		return
-	}
-
-	p := models.Process{
-		Name:        strings.TrimSpace(r.FormValue("name")),
-		Image:       strings.TrimSpace(r.FormValue("image")),
-		Namespace:   h.namespace,
-		Arch:        r.FormValue("arch"),
-		MemoryLimit: r.FormValue("memoryLimit"),
-		Env:         parseEnv(r.FormValue("env")),
-	}
-	if r.FormValue("port") != "" {
-		var port int32
-		if _, err := fmt.Sscanf(r.FormValue("port"), "%d", &port); err == nil {
-			p.Port = port
-		}
-	}
-	if r.FormValue("replicas") != "" {
-		var replicas int32
-		if _, err := fmt.Sscanf(r.FormValue("replicas"), "%d", &replicas); err == nil {
-			p.Replicas = replicas
-		}
-	}
-
-	if err := p.Validate(); err != nil {
-		h.renderError(w, err)
-		return
-	}
-
-	if err := h.client.CreateProcess(r.Context(), p, h.domain); err != nil {
-		h.renderError(w, err)
-		return
-	}
-
-	h.renderFragment(w, "process-row.html", p)
-}
-
-// Delete removes a process.
-func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	if err := h.client.DeleteProcess(r.Context(), h.namespace, name); err != nil {
-		h.renderError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-// Logs returns container logs.
-func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	logs, err := h.client.GetPodLogs(r.Context(), h.namespace, name)
-	if err != nil {
-		h.renderError(w, err)
-		return
-	}
-	h.render(w, "logs.html", map[string]any{
-		"Name": name,
-		"Logs": logs,
-	})
-}
-
-// Healthz is a simple health check.
-func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
-}
-
-func (h *Handler) render(w http.ResponseWriter, name string, data any) {
+// Render writes a full HTML page.
+func Render(tmpl *template.Template, w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.tmpl.ExecuteTemplate(w, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func (h *Handler) renderFragment(w http.ResponseWriter, name string, data any) {
+// RenderFragment writes an HTMX partial.
+func RenderFragment(tmpl *template.Template, w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.tmpl.ExecuteTemplate(w, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func (h *Handler) renderError(w http.ResponseWriter, err error) {
-	w.WriteHeader(http.StatusInternalServerError)
+// RenderError returns a concise error as plain text or HTML fragment.
+func RenderError(w http.ResponseWriter, err error, code int) {
 	w.Header().Set("Content-Type", "text/plain")
-	w.Write([]byte(err.Error()))
-}
-
-func parseEnv(input string) map[string]string {
-	env := make(map[string]string)
-	for _, line := range strings.Split(input, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			env[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-		}
-	}
-	return env
+	w.WriteHeader(code)
+	fmt.Fprint(w, err.Error())
 }
