@@ -29,9 +29,12 @@ func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var dbs []string
 	if h.deps.Provisioner != nil {
-		if list, err := h.deps.Provisioner.ListDatabases(r.Context()); err == nil {
-			dbs = list
+		list, err := h.deps.Provisioner.ListDatabases(r.Context())
+		if err != nil {
+			handlers.RenderError(w, err, http.StatusInternalServerError)
+			return
 		}
+		dbs = list
 	}
 	handlers.Render(h.deps.Tmpl, w, "pages/databases/list", map[string]any{
 		"Title":     "Databases",
