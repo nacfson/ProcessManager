@@ -1,0 +1,21 @@
+{{template "components/layout" .}}
+
+{{define "pages/home/home-content"}}
+{{template "components/page-header" dict "Title" "Dashboard"}}
+<div class="row">
+    <div class="card">
+        <h3>{{.ProcessCount}}</h3>
+        <p>Active Processes</p>
+        <a href="/processes">Manage &rarr;</a>
+    </div>
+    <div class="card">
+        <h3>{{.ProjectCount}}</h3>
+        <p>Projects</p>
+        <a href="/projects">Manage &rarr;</a>
+    </div>
+</div>
+<div class="card">
+    <h3>Recent Activity</h3>
+    <p style="color:var(--muted);">Activity feed will appear here.</p>
+</div>
+{{end}}
