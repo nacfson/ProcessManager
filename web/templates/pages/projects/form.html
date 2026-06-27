@@ -1,0 +1,32 @@
+{{template "components/layout" .}}
+
+{{define "pages/projects/form-content"}}
+{{template "components/page-header" dict "Title" "New Project"}}
+<div class="card">
+    <form hx-post="/projects" hx-target="#project-list" hx-swap="beforeend">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" placeholder="portfolio" required>
+
+        <label for="namespace">Namespace</label>
+        <input type="text" id="namespace" name="namespace" placeholder="nacfson-personal" required>
+
+        <label for="domainHost">Domain Host</label>
+        <input type="text" id="domainHost" name="domainHost" placeholder="portfolio.nacfson.cloud" required>
+
+        <label for="type">Type</label>
+        <select id="type" name="type">
+            <option value="simple">Simple</option>
+            <option value="advanced">Advanced</option>
+        </select>
+
+        <div style="margin-top:1rem;">
+            <label><input type="checkbox" name="dbRequired" checked> Requires Database</label>
+        </div>
+        <div>
+            <label><input type="checkbox" name="authEnabled" checked> Auth Enabled</label>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top:1rem;">Create Project</button>
+    </form>
+</div>
+{{end}}

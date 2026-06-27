@@ -1,0 +1,8 @@
+<tr id="project-{{.Name}}">
+    <td>{{.Name}}</td>
+    <td>{{.Namespace}}</td>
+    <td>{{.DomainHost}}</td>
+    <td>{{.Type}}</td>
+    <td>{{if .DBRequired}}Yes{{else}}No{{end}}</td>
+    <td>{{if .AuthEnabled}}Yes{{else}}No{{end}}</td>
+</tr>

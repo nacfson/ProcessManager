@@ -1,0 +1,21 @@
+{{template "components/layout" .}}
+
+{{define "pages/projects/list-content"}}
+{{template "components/page-header" dict "Title" "Projects" "Action" "New Project" "Href" "/projects/new"}}
+<div class="card">
+    {{if .Projects}}
+    <table>
+        <thead>
+            <tr><th>Name</th><th>Namespace</th><th>Domain Host</th><th>Type</th><th>DB</th><th>Auth</th></tr>
+        </thead>
+        <tbody id="project-list">
+            {{range .Projects}}
+                {{template "pages/projects/row" .}}
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        {{template "components/empty-state" dict "Message" "No projects yet."}}
+    {{end}}
+</div>
+{{end}}
