@@ -245,6 +245,48 @@ func (s *Store) GetProjectRoles(ctx context.Context, projectID, userID string) (
 	return roles, rows.Err()
 }
 
+// AuditEvent represents a recorded action.
+type AuditEvent struct {
+	ID           string
+	ActorEmail   string
+	Action       string
+	ResourceType string
+	ResourceID   string
+	CreatedAt    time.Time
+}
+
+// LogAuditEvent records an action.
+func (s *Store) LogAuditEvent(ctx context.Context, actorEmail, action, resourceType, resourceID string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO audit_events (actor_email, action, resource_type, resource_id) VALUES ($1, $2, $3, $4)`,
+		actorEmail, action, resourceType, resourceID)
+	return err
+}
+
+// ListAuditEvents returns recent audit events.
+func (s *Store) ListAuditEvents(ctx context.Context, limit int) ([]AuditEvent, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, actor_email, action, resource_type, resource_id, created_at FROM audit_events ORDER BY created_at DESC LIMIT $1`,
+		limit)
+	if err != nil {
+		return nil, fmt.Errorf("list audit events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		if err := rows.Scan(&e.ID, &e.ActorEmail, &e.Action, &e.ResourceType, &e.ResourceID, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
 const schema = `
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -284,4 +326,14 @@ CREATE TABLE IF NOT EXISTS project_members (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_email TEXT,
+    action TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at DESC);
 `

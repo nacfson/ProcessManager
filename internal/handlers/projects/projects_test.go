@@ -113,6 +113,10 @@ func (s *fakeAuthStore) ListUsers(_ context.Context) ([]auth.User, error) {
 	return nil, nil
 }
 
+func (s *fakeAuthStore) ListAuditEvents(_ context.Context, _ int) ([]auth.AuditEvent, error) {
+	return nil, nil
+}
+
 func TestCreateHappyPath(t *testing.T) {
 	store := &fakeAuthStore{}
 	deps := handlers.Deps{

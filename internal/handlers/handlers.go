@@ -19,6 +19,7 @@ type AuthStore interface {
 	CreateProject(ctx context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*auth.Project, error)
 	ListProjects(ctx context.Context) ([]auth.Project, error)
 	ListUsers(ctx context.Context) ([]auth.User, error)
+	ListAuditEvents(ctx context.Context, limit int) ([]auth.AuditEvent, error)
 }
 
 // Deps carries shared dependencies for all domain handlers.

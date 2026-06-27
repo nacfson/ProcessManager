@@ -1,0 +1,19 @@
+{{template "components/layout" .}}
+
+{{define "pages/activity/list-content"}}
+{{template "components/page-header" dict "Title" "Activity"}}
+<div class="card">
+    {{if .Events}}
+    <table>
+        <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th></tr></thead>
+        <tbody>
+            {{range .Events}}
+            <tr><td>{{.CreatedAt}}</td><td>{{.ActorEmail}}</td><td>{{.Action}}</td><td>{{.ResourceType}} {{.ResourceID}}</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        {{template "components/empty-state" dict "Message" "No activity yet."}}
+    {{end}}
+</div>
+{{end}}
