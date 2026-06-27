@@ -1,0 +1,19 @@
+{{template "components/layout" .}}
+
+{{define "pages/databases/list-content"}}
+{{template "components/page-header" dict "Title" "Databases"}}
+<div class="card">
+    {{if .Databases}}
+    <table>
+        <thead><tr><th>Database Name</th></tr></thead>
+        <tbody>
+            {{range .Databases}}
+            <tr><td>{{.}}</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        {{template "components/empty-state" dict "Message" "No provisioned databases yet."}}
+    {{end}}
+</div>
+{{end}}

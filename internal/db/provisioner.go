@@ -68,6 +68,25 @@ func (p *Provisioner) Provision(ctx context.Context, projectName string) (databa
 	return database, user, password, dsn, nil
 }
 
+// ListDatabases returns names of databases managed by the provisioner.
+func (p *Provisioner) ListDatabases(ctx context.Context) ([]string, error) {
+	rows, err := p.pool.Query(ctx, "SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres', 'template0', 'template1')")
+	if err != nil {
+		return nil, fmt.Errorf("list databases: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}
+
 // Deprovision drops the project's database and role.
 func (p *Provisioner) Deprovision(ctx context.Context, projectName string) error {
 	database := sanitizeName(projectName)
