@@ -1,0 +1,19 @@
+{{template "components/layout" .}}
+
+{{define "pages/users/list-content"}}
+{{template "components/page-header" dict "Title" "Users"}}
+<div class="card">
+    {{if .Users}}
+    <table>
+        <thead><tr><th>Email</th><th>Admin</th><th>Created</th></tr></thead>
+        <tbody>
+            {{range .Users}}
+            <tr><td>{{.Email}}</td><td>{{if .IsAdmin}}Yes{{else}}No{{end}}</td><td>{{.CreatedAt}}</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        {{template "components/empty-state" dict "Message" "No users yet."}}
+    {{end}}
+</div>
+{{end}}

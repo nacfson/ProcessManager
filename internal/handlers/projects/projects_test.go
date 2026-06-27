@@ -109,6 +109,10 @@ func (s *fakeAuthStore) ListProjects(_ context.Context) ([]auth.Project, error) 
 	return []auth.Project{*s.created}, nil
 }
 
+func (s *fakeAuthStore) ListUsers(_ context.Context) ([]auth.User, error) {
+	return nil, nil
+}
+
 func TestCreateHappyPath(t *testing.T) {
 	store := &fakeAuthStore{}
 	deps := handlers.Deps{
