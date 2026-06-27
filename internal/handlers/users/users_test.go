@@ -75,6 +75,9 @@ func TestListSurfacesError(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "Failed to load users") {
 		t.Errorf("expected error message in body, got %q", rec.Body.String())
 	}
+	if strings.Contains(rec.Body.String(), "No users yet") {
+		t.Errorf("empty state should not appear alongside an error")
+	}
 }
 
 func mustTemplate(t *testing.T) *template.Template {

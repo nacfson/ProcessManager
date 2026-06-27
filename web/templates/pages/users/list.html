@@ -17,7 +17,7 @@
             {{end}}
         </tbody>
     </table>
-    {{else}}
+    {{else if not .Error}}
         {{template "components/empty-state" dict "Message" "No users yet."}}
     {{end}}
 </div>

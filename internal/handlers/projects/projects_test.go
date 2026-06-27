@@ -142,6 +142,35 @@ func TestListSurfacesError(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "Failed to load projects") {
 		t.Errorf("expected error message in body, got %q", rec.Body.String())
 	}
+	if strings.Contains(rec.Body.String(), "No projects yet") {
+		t.Errorf("empty state should not appear alongside an error")
+	}
+}
+
+func TestListEmptyStateHasDeleteTarget(t *testing.T) {
+	store := &fakeAuthStore{}
+	deps := handlers.Deps{
+		Namespace: "test-ns",
+		Domain:    "test.local",
+		AuthStore: store,
+		Tmpl:      mustTemplate(t),
+	}
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "id=\"project-list-empty\"") {
+		t.Errorf("expected empty state to have id project-list-empty for OOB delete, got %q", body)
+	}
+	if !strings.Contains(body, "No projects yet") {
+		t.Errorf("expected empty state message, got %q", body)
+	}
 }
 
 func TestCreateHappyPath(t *testing.T) {

@@ -11,6 +11,7 @@
     {{template "pages/projects/form-fields" .}}
 </div>
 <div class="card">
+    {{if .Projects}}
     <table>
         <thead>
             <tr><th>Name</th><th>Namespace</th><th>Domain Host</th><th>Type</th><th>DB</th><th>Auth</th></tr>
@@ -18,10 +19,11 @@
         <tbody id="project-list">
             {{range .Projects}}
                 {{template "pages/projects/row" .}}
-            {{else}}
-                <tr id="project-list-empty"><td colspan="6">{{template "components/empty-state" dict "Message" "No projects yet."}}</td></tr>
             {{end}}
         </tbody>
     </table>
+    {{else if not .Error}}
+        <div id="project-list-empty">{{template "components/empty-state" dict "Message" "No projects yet."}}</div>
+    {{end}}
 </div>
 {{end}}
