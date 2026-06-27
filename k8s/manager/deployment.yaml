@@ -38,6 +38,11 @@ spec:
                   name: manager-auth-db-secrets
                   key: DATABASE_URL
                   optional: true
+            - name: SHARED_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shared-app-db-secrets
+                  key: DATABASE_URL
           args:
             - -namespace=nacfson-personal
             - -domain=nacfson.cloud
