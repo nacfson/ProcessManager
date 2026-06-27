@@ -1,0 +1,28 @@
+{{template "components/layout" .}}
+
+{{define "pages/processes/list-content"}}
+{{template "components/page-header" dict "Title" "Processes" "Action" "New Process" "Href" "/processes/new"}}
+<div class="card">
+    {{if .Processes}}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Image</th>
+                <th>Arch</th>
+                <th>Status</th>
+                <th>URL</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="process-list">
+            {{range .Processes}}
+                {{template "pages/processes/row" .}}
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+        {{template "components/empty-state" dict "Message" "No processes yet."}}
+    {{end}}
+</div>
+{{end}}

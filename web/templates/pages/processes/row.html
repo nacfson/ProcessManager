@@ -1,0 +1,15 @@
+<tr id="process-{{.Name}}">
+    <td>{{.Name}}</td>
+    <td>{{.Image}}</td>
+    <td>{{.Arch}}</td>
+    <td>
+        <span hx-get="/processes/{{.Name}}/status" hx-trigger="every 3s" hx-swap="outerHTML">
+            {{template "pages/processes/status" dict "Status" "pending" "Label" "..."}}
+        </span>
+    </td>
+    <td><a href="{{.PublicURL}}" target="_blank">{{.PublicURL}}</a></td>
+    <td>
+        <a href="/processes/{{.Name}}/logs">Logs</a>
+        <button class="btn btn-danger" hx-post="/processes/{{.Name}}/delete" hx-target="#process-{{.Name}}" hx-swap="outerHTML" hx-confirm="Delete {{.Name}}?" style="margin-left:0.5rem;">Delete</button>
+    </td>
+</tr>

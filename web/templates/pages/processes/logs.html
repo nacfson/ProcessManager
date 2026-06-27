@@ -1,0 +1,8 @@
+{{template "components/layout" .}}
+
+{{define "pages/processes/logs-content"}}
+{{template "components/page-header" dict "Title" (printf "%s Logs" .Name)}}
+<div class="card">
+    <pre id="log-pane" hx-get="/processes/{{.Name}}/logs/stream" hx-trigger="every 2s" hx-swap="innerHTML scroll-bottom" style="max-height:60vh;overflow:auto;">{{.Logs}}</pre>
+</div>
+{{end}}

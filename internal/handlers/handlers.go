@@ -16,8 +16,8 @@ import (
 
 // Deps carries shared dependencies for all domain handlers.
 type Deps struct {
-	Client    k8s.ClientInterface
-	AuthStore *auth.Store
+	Client      k8s.ClientInterface
+	AuthStore   *auth.Store
 	Provisioner interface {
 		ListDatabases(ctx context.Context) ([]string, error)
 	}
@@ -92,7 +92,18 @@ func render(w http.ResponseWriter, contentType string, tmpl *template.Template, 
 }
 
 // Render writes a full HTML page.
+// Page templates define a content block named "<template-name>-content"; this
+// function pre-renders that block and injects it as ContentHTML so the shared
+// layout can place it without all pages fighting over a global "content" block.
 func Render(tmpl *template.Template, w http.ResponseWriter, name string, data any) {
+	if m, ok := data.(map[string]any); ok {
+		if _, exists := m["ContentHTML"]; !exists {
+			var buf strings.Builder
+			if err := tmpl.ExecuteTemplate(&buf, name+"-content", data); err == nil {
+				m["ContentHTML"] = template.HTML(buf.String())
+			}
+		}
+	}
 	render(w, "text/html; charset=utf-8", tmpl, name, data)
 }
 

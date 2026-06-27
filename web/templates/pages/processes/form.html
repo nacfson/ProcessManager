@@ -1,8 +1,8 @@
-{{template "layout" .}}
+{{template "components/layout" .}}
 
-{{define "content"}}
+{{define "pages/processes/form-content"}}
+{{template "components/page-header" dict "Title" "New Process"}}
 <div class="card">
-    <h2>New Process</h2>
     <form hx-post="/processes" hx-target="#process-list" hx-swap="beforeend">
         <label for="name">Name</label>
         <input type="text" id="name" name="name" placeholder="portfolio" required>
