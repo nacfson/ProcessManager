@@ -2211,7 +2211,8 @@ git commit -m "feat(manager): wire all domain routes"
 - [ ] **Step 1: Run the manager locally**
 
 ```bash
-go run ./cmd/manager -namespace nacfson-personal -domain nacfson.cloud
+go run ./cmd/manager -namespace nacfson-personal -domain nacfson.cloud -fake-k8s
+# or: USE_FAKE_K8S=true go run ./cmd/manager -namespace nacfson-personal -domain nacfson.cloud
 ```
 
 - [ ] **Step 2: Verify pages load**
