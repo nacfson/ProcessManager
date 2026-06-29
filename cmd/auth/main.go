@@ -6,11 +6,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"processmanager/internal/auth"
 	"processmanager/internal/db"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
@@ -18,6 +19,7 @@ func main() {
 	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "auth database DSN")
 	cookieDomain := flag.String("cookie-domain", os.Getenv("COOKIE_DOMAIN"), "session cookie domain")
 	sessionTTL := flag.Duration("session-ttl", 7*24*time.Hour, "session lifetime")
+	apiAllowedOrigins := flag.String("api-allowed-origins", os.Getenv("AUTH_API_ALLOWED_ORIGINS"), "comma-separated origins allowed to call the JSON auth API")
 	flag.Parse()
 
 	if *dsn == "" {
@@ -43,7 +45,7 @@ func main() {
 		log.Fatalf("failed to bootstrap admin: %v", err)
 	}
 
-	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL)
+	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, splitAndTrim(*apiAllowedOrigins))
 	if err != nil {
 		log.Fatalf("failed to create auth handler: %v", err)
 	}
@@ -60,6 +62,21 @@ func main() {
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func splitAndTrim(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func bootstrapAdmin(ctx context.Context, store *auth.Store) error {

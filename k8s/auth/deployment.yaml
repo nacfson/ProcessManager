@@ -39,6 +39,8 @@ spec:
               value: "nacfson.cloud"
             - name: SESSION_LIFETIME
               value: "168h"
+            - name: AUTH_API_ALLOWED_ORIGINS
+              value: "https://pn.nacfson.cloud"
           readinessProbe:
             httpGet:
               path: /healthz

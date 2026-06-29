@@ -27,8 +27,8 @@ spec:
               done
       containers:
         - name: migrate
-          image: project-pn-backend:latest
-          imagePullPolicy: IfNotPresent
+          image: 192.168.219.100:5000/project-pn-backend:latest
+          imagePullPolicy: Always
           command: ["./migrate", "up"]
           env:
             - name: DATABASE_URL

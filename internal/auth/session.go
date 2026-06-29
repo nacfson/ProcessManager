@@ -51,6 +51,16 @@ func SessionCookie(r *http.Request) string {
 	return c.Value
 }
 
+// BearerToken extracts a raw bearer token from the Authorization header.
+func BearerToken(r *http.Request) string {
+	const prefix = "Bearer "
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	if len(header) <= len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(header[len(prefix):])
+}
+
 // SetSessionCookie sets the session cookie on the response.
 func SetSessionCookie(w http.ResponseWriter, token string, lifetime time.Duration, domain string) {
 	http.SetCookie(w, &http.Cookie{
