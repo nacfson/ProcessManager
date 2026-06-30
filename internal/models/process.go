@@ -18,17 +18,6 @@ type Process struct {
 	CreatedAt   time.Time         `json:"createdAt"`
 }
 
-// ProcessStatus describes the runtime and routing health of a process.
-type ProcessStatus struct {
-	Name             string
-	Ready            int32
-	Total            int32
-	ServiceEndpoints int32
-	IngressReady     bool
-	TLSReady         bool
-	Host             string
-}
-
 // Validate checks basic rules for a Process.
 func (p *Process) Validate() error {
 	if p.Name == "" {

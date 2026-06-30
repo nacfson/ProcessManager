@@ -101,7 +101,18 @@ func (h *Handler) loginAllowed(r *http.Request, email string) bool {
 	if ip := net.ParseIP(identifier); ip != nil {
 		identifier = ip.String()
 	}
-	return h.loginLimiter.allow(identifier, email)
+	return h.loginLimiter.check(identifier, email)
+}
+
+func (h *Handler) recordFailedLogin(r *http.Request, email string) {
+	if h.loginLimiter == nil {
+		return
+	}
+	identifier := clientIP(r, 1)
+	if ip := net.ParseIP(identifier); ip != nil {
+		identifier = ip.String()
+	}
+	h.loginLimiter.record(identifier, email)
 }
 
 // RegisterRoutes registers auth routes on the mux.
@@ -157,10 +168,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil || user.PasswordHash == "" {
+		h.recordFailedLogin(r, email)
 		h.redirectLogin(w, r, "invalid credentials")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		h.recordFailedLogin(r, email)
 		h.redirectLogin(w, r, "invalid credentials")
 		return
 	}
@@ -215,10 +228,12 @@ func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil || user.PasswordHash == "" {
+		h.recordFailedLogin(r, email)
 		writeAPIError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		h.recordFailedLogin(r, email)
 		writeAPIError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}

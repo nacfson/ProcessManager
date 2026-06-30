@@ -32,11 +32,27 @@ func NewLoginLimiter(max int, window time.Duration) *loginLimiter {
 	return l
 }
 
-func (l *loginLimiter) allow(identifier, email string) bool {
+func (l *loginLimiter) check(identifier, email string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	key := rateLimitKey{identifier: identifier, email: email}
+	recent := l.recentAttempts(key)
+	l.setAttempts(key, recent)
+	return len(recent) < l.max
+}
+
+func (l *loginLimiter) record(identifier, email string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	key := rateLimitKey{identifier: identifier, email: email}
+	recent := l.recentAttempts(key)
+	recent = append(recent, time.Now())
+	l.setAttempts(key, recent)
+}
+
+func (l *loginLimiter) recentAttempts(key rateLimitKey) []time.Time {
 	now := time.Now()
 	cutoff := now.Add(-l.window)
 
@@ -46,15 +62,7 @@ func (l *loginLimiter) allow(identifier, email string) bool {
 			recent = append(recent, t)
 		}
 	}
-
-	if len(recent) >= l.max {
-		l.setAttempts(key, recent)
-		return false
-	}
-
-	recent = append(recent, now)
-	l.setAttempts(key, recent)
-	return true
+	return recent
 }
 
 func (l *loginLimiter) setAttempts(key rateLimitKey, recent []time.Time) {

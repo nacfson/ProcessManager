@@ -13,8 +13,12 @@ func TestValidateReturnTo(t *testing.T) {
 		{"empty returns default", "", "https://nacfson.cloud", false},
 		{"allowed path", "/processes", "https://nacfson.cloud/processes", false},
 		{"allowed host", "https://manager.nacfson.cloud/foo", "https://manager.nacfson.cloud/foo", false},
+		{"allowed direct subdomain", "https://manager.nacfson.cloud", "https://manager.nacfson.cloud", false},
 		{"rejected external host", "https://evil.com", "", true},
 		{"rejected schemeless", "//evil.com", "", true},
+		{"rejected suffix bypass", "https://evil.com.nacfson.cloud", "", true},
+		{"rejected nested subdomain", "https://foo.bar.nacfson.cloud", "", true},
+		{"rejected path traversal", "/../../etc/passwd", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -36,8 +36,6 @@ type ClientInterface interface {
 	CreateProcess(ctx context.Context, p models.Process, domain string) error
 	DeleteProcess(ctx context.Context, namespace, name string) error
 	GetPodLogs(ctx context.Context, namespace, name string) (string, error)
-	ScaleProcess(ctx context.Context, namespace, name string, replicas int32) error
-	GetProcessStatus(ctx context.Context, namespace, name string) (*models.ProcessStatus, error)
 }
 
 // Client wraps a Kubernetes clientset for managing processes.
@@ -237,80 +235,6 @@ func (c *Client) DeleteProcess(ctx context.Context, namespace, name string) erro
 	return nil
 }
 
-// ScaleProcess updates the replica count of a managed Deployment.
-func (c *Client) ScaleProcess(ctx context.Context, namespace, name string, replicas int32) error {
-	if replicas < 0 || replicas > 10 {
-		return models.ErrInvalidReplicas
-	}
-	if c.clientset == nil {
-		return fmt.Errorf("kubernetes client not configured")
-	}
-	d, err := c.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get deployment: %w", err)
-	}
-	if d.Labels[ManagedByLabel] != ManagedByValue {
-		return models.ErrProcessNotFound
-	}
-	d.Spec.Replicas = &replicas
-	if _, err := c.clientset.AppsV1().Deployments(namespace).Update(ctx, d, metav1.UpdateOptions{}); err != nil {
-		return fmt.Errorf("update deployment: %w", err)
-	}
-	return nil
-}
-
-// GetProcessStatus returns runtime and routing health for a process.
-func (c *Client) GetProcessStatus(ctx context.Context, namespace, name string) (*models.ProcessStatus, error) {
-	if c.clientset == nil {
-		return nil, fmt.Errorf("kubernetes client not configured")
-	}
-	d, err := c.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("get deployment: %w", err)
-	}
-	if d.Labels[ManagedByLabel] != ManagedByValue {
-		return nil, models.ErrProcessNotFound
-	}
-
-	status := &models.ProcessStatus{
-		Name:  d.Name,
-		Ready: d.Status.ReadyReplicas,
-		Total: d.Status.Replicas,
-	}
-	if d.Spec.Replicas != nil {
-		status.Total = *d.Spec.Replicas
-	}
-
-	endpoints, err := c.clientset.CoreV1().Endpoints(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		for _, subset := range endpoints.Subsets {
-			for _, addr := range subset.Addresses {
-				if addr.TargetRef != nil {
-					status.ServiceEndpoints++
-				}
-			}
-		}
-		status.IngressReady = true
-	}
-
-	ingress, err := c.clientset.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		status.IngressReady = true
-		if len(ingress.Spec.Rules) > 0 {
-			status.Host = ingress.Spec.Rules[0].Host
-		}
-		if len(ingress.Spec.TLS) > 0 {
-			secretName := ingress.Spec.TLS[0].SecretName
-			if secretName != "" {
-				_, err := c.clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
-				status.TLSReady = err == nil
-			}
-		}
-	}
-
-	return status, nil
-}
-
 // GetPodLogs returns logs from the first pod of a process.
 func (c *Client) GetPodLogs(ctx context.Context, namespace, name string) (string, error) {
 	selector := labels.SelectorFromSet(map[string]string{PartOfLabel: name, ManagedByLabel: ManagedByValue})
@@ -371,3 +295,4 @@ func (c *Client) deploymentToProcess(d appsv1.Deployment) models.Process {
 	}
 	return p
 }
+
