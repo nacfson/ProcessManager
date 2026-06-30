@@ -165,3 +165,35 @@ func TestAPIOptionsRejectsUnconfiguredOrigin(t *testing.T) {
 		t.Fatalf("APIOptions status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }
+
+func TestClientIPPrefersXForwardedFor(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/session", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.5, 198.51.100.10")
+
+	got := clientIP(req, 1)
+	if got != "198.51.100.10" {
+		t.Fatalf("clientIP = %q, want %q", got, "198.51.100.10")
+	}
+}
+
+func TestClientIPFallsBackToXRealIP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/session", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Real-IP", "203.0.113.7")
+
+	got := clientIP(req, 1)
+	if got != "203.0.113.7" {
+		t.Fatalf("clientIP = %q, want %q", got, "203.0.113.7")
+	}
+}
+
+func TestClientIPFallsBackToRemoteAddr(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/session", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+
+	got := clientIP(req, 1)
+	if got != "10.0.0.1" {
+		t.Fatalf("clientIP = %q, want %q", got, "10.0.0.1")
+	}
+}

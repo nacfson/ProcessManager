@@ -60,16 +60,45 @@ func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, log
 	}, nil
 }
 
-func (h *Handler) loginAllowed(r *http.Request, email string) bool {
-	if h.loginLimiter == nil {
-		return true
+// clientIP returns the client IP for rate-limiting purposes, trusting the
+// rightmost address from X-Forwarded-For for the configured number of proxies,
+// then falling back to X-Real-IP and finally r.RemoteAddr.
+func clientIP(r *http.Request, trustedProxies int) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" && trustedProxies > 0 {
+		parts := strings.Split(xff, ",")
+		if len(parts) >= trustedProxies {
+			ip := strings.TrimSpace(parts[len(parts)-trustedProxies])
+			if host, _, err := net.SplitHostPort(ip); err == nil {
+				ip = host
+			}
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
 	}
+
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		if host, _, err := net.SplitHostPort(xri); err == nil {
+			xri = host
+		}
+		if net.ParseIP(xri) != nil {
+			return xri
+		}
+	}
+
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if host == "" {
 		host = r.RemoteAddr
 	}
-	identifier := host
-	if ip := net.ParseIP(host); ip != nil {
+	return host
+}
+
+func (h *Handler) loginAllowed(r *http.Request, email string) bool {
+	if h.loginLimiter == nil {
+		return true
+	}
+	identifier := clientIP(r, 1)
+	if ip := net.ParseIP(identifier); ip != nil {
 		identifier = ip.String()
 	}
 	return h.loginLimiter.allow(identifier, email)

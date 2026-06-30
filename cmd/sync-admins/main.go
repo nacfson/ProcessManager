@@ -19,6 +19,10 @@ type AdminUser struct {
 	Password string `yaml:"password"`
 }
 
+type adminList struct {
+	Admins []AdminUser `yaml:"admins"`
+}
+
 func main() {
 	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "auth database DSN")
 	path := flag.String("path", "/etc/auth/admins.yaml", "path to admin users YAML")
@@ -33,10 +37,11 @@ func main() {
 		log.Fatalf("read admins file: %v", err)
 	}
 
-	var admins []AdminUser
-	if err := yaml.Unmarshal(data, &admins); err != nil {
+	var list adminList
+	if err := yaml.Unmarshal(data, &list); err != nil {
 		log.Fatalf("parse admins yaml: %v", err)
 	}
+	admins := list.Admins
 
 	ctx := context.Background()
 	pool, err := db.NewPool(ctx, *dsn)

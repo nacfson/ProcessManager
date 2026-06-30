@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"processmanager/internal/auth"
 	"processmanager/internal/db"
@@ -22,9 +23,33 @@ import (
 	"processmanager/internal/k8s/fake"
 )
 
+func parseSSLMode(dsn string) string {
+	lower := strings.ToLower(dsn)
+	i := strings.Index(lower, "sslmode=")
+	if i < 0 {
+		return ""
+	}
+	rest := dsn[i+len("sslmode="):]
+	j := strings.IndexAny(rest, "& ")
+	if j < 0 {
+		return strings.ToLower(rest)
+	}
+	return strings.ToLower(rest[:j])
+}
+
 func validateAuthDSN(dsn string) error {
 	if dsn == "" {
 		return errors.New("AUTH_DATABASE_URL is required")
+	}
+	mode := parseSSLMode(dsn)
+	if mode == "" {
+		return errors.New("AUTH_DATABASE_URL must specify sslmode")
+	}
+	if mode == "disable" {
+		return errors.New("AUTH_DATABASE_URL must use TLS; sslmode=disable is not allowed")
+	}
+	if mode != "require" && mode != "verify-full" {
+		return errors.New("AUTH_DATABASE_URL must use sslmode=require or sslmode=verify-full")
 	}
 	return nil
 }
