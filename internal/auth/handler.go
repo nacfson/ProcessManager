@@ -68,7 +68,11 @@ func (h *Handler) loginAllowed(r *http.Request, email string) bool {
 	if host == "" {
 		host = r.RemoteAddr
 	}
-	return h.loginLimiter.allow(net.ParseIP(host), email)
+	identifier := host
+	if ip := net.ParseIP(host); ip != nil {
+		identifier = ip.String()
+	}
+	return h.loginLimiter.allow(identifier, email)
 }
 
 // RegisterRoutes registers auth routes on the mux.

@@ -2,7 +2,6 @@ package auth
 
 import (
 	"fmt"
-	"net"
 	"sync"
 	"time"
 )
@@ -22,11 +21,11 @@ func NewLoginLimiter(max int, window time.Duration) *loginLimiter {
 	}
 }
 
-func (l *loginLimiter) allow(ip net.IP, email string) bool {
+func (l *loginLimiter) allow(identifier, email string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	key := fmt.Sprintf("%s|%s", ip.String(), email)
+	key := fmt.Sprintf("%s|%s", identifier, email)
 	now := time.Now()
 	cutoff := now.Add(-l.window)
 
@@ -38,11 +37,19 @@ func (l *loginLimiter) allow(ip net.IP, email string) bool {
 	}
 
 	if len(recent) >= l.max {
-		l.attempts[key] = recent
+		l.setAttempts(key, recent)
 		return false
 	}
 
 	recent = append(recent, now)
-	l.attempts[key] = recent
+	l.setAttempts(key, recent)
 	return true
+}
+
+func (l *loginLimiter) setAttempts(key string, recent []time.Time) {
+	if len(recent) == 0 {
+		delete(l.attempts, key)
+	} else {
+		l.attempts[key] = recent
+	}
 }
