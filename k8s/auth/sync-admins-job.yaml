@@ -24,4 +24,4 @@ spec:
       volumes:
         - name: admin-users
           secret:
-            secretName: admin-users
+            secretName: auth-admin-users
