@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -322,43 +321,18 @@ func (h *Handler) allowAPIOrigin(w http.ResponseWriter, r *http.Request) bool {
 	if origin == "" {
 		return true
 	}
-	if h.isAllowedOrigin(origin) {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		w.Header().Set("Access-Control-Max-Age", "300")
-		return true
-	}
-
-	log.Printf("[auth] rejecting API origin %q (allowed=%v, cookieDomain=%q)", origin, h.apiAllowedOrigins, h.cookieDomain)
-	writeAPIError(w, http.StatusForbidden, "origin is not allowed")
-	return false
-}
-
-func (h *Handler) isAllowedOrigin(origin string) bool {
 	for _, allowed := range h.apiAllowedOrigins {
 		if origin == allowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "300")
 			return true
 		}
 	}
-
-	// Allow any subdomain of the configured cookie domain so projects under the
-	// same root domain (e.g. pn.nacfson.cloud, portfolio.nacfson.cloud) can call
-	// the central auth API without listing every host explicitly.
-	if h.cookieDomain == "" {
-		return false
-	}
-	u, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	cookieDomain := strings.ToLower(strings.TrimPrefix(h.cookieDomain, "."))
-	if host == cookieDomain {
-		return true
-	}
-	return strings.HasSuffix(host, "."+cookieDomain)
+	writeAPIError(w, http.StatusForbidden, "origin is not allowed")
+	return false
 }
 
 func apiUserFromSession(sess *Session) apiUserResponse {
