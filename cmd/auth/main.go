@@ -45,7 +45,8 @@ func main() {
 		log.Fatalf("failed to bootstrap admin: %v", err)
 	}
 
-	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, splitAndTrim(*apiAllowedOrigins))
+	limiter := auth.NewLoginLimiter(5, time.Minute)
+	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, limiter, splitAndTrim(*apiAllowedOrigins))
 	if err != nil {
 		log.Fatalf("failed to create auth handler: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,6 +20,7 @@ type Handler struct {
 	sessionTTL        time.Duration
 	apiAllowedOrigins []string
 	tmpl              *template.Template
+	loginLimiter      *loginLimiter
 }
 
 type apiLoginRequest struct {
@@ -39,7 +41,7 @@ type apiUserResponse struct {
 }
 
 // NewHandler creates an auth handler.
-func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, apiAllowedOrigins ...[]string) (*Handler, error) {
+func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, loginLimiter *loginLimiter, apiAllowedOrigins ...[]string) (*Handler, error) {
 	tmpl, err := template.New("").ParseGlob("web/templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
@@ -54,7 +56,19 @@ func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, api
 		sessionTTL:        sessionTTL,
 		apiAllowedOrigins: allowedOrigins,
 		tmpl:              tmpl,
+		loginLimiter:      loginLimiter,
 	}, nil
+}
+
+func (h *Handler) loginAllowed(r *http.Request, email string) bool {
+	if h.loginLimiter == nil {
+		return true
+	}
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if host == "" {
+		host = r.RemoteAddr
+	}
+	return h.loginLimiter.allow(net.ParseIP(host), email)
 }
 
 // RegisterRoutes registers auth routes on the mux.
@@ -92,6 +106,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+	if !h.loginAllowed(r, email) {
+		h.redirectLogin(w, r, "too many attempts")
+		return
+	}
 	password := r.FormValue("password")
 	returnTo := r.FormValue("return_to")
 	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain)
@@ -151,6 +169,10 @@ func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	if email == "" || req.Password == "" {
 		writeAPIError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+	if !h.loginAllowed(r, email) {
+		writeAPIError(w, http.StatusTooManyRequests, "too many attempts")
 		return
 	}
 
