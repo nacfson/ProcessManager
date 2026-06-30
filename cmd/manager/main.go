@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -20,6 +21,13 @@ import (
 	"processmanager/internal/k8s"
 	"processmanager/internal/k8s/fake"
 )
+
+func validateAuthDSN(dsn string) error {
+	if dsn == "" {
+		return errors.New("AUTH_DATABASE_URL is required")
+	}
+	return nil
+}
 
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
@@ -59,22 +67,22 @@ func main() {
 		Tmpl:      tmpl,
 	}
 
-	if *authDSN != "" {
-		ctx := context.Background()
-		pool, err := db.NewPool(ctx, *authDSN)
-		if err != nil {
-			log.Fatalf("failed to connect to auth db: %v", err)
-		}
-		defer pool.Close()
-		store := auth.NewStore(pool)
-		if err := store.Migrate(ctx); err != nil {
-			log.Fatalf("failed to migrate auth db: %v", err)
-		}
-		deps.AuthStore = store
-		deps.AuthMW = auth.NewMiddleware(store, *authHost, *domain)
-	} else {
-		log.Println("warning: AUTH_DATABASE_URL not set; manager dashboard is unprotected")
+	if err := validateAuthDSN(*authDSN); err != nil {
+		log.Fatalf("failed to validate auth configuration: %v", err)
 	}
+
+	ctx := context.Background()
+	pool, err := db.NewPool(ctx, *authDSN)
+	if err != nil {
+		log.Fatalf("failed to connect to auth db: %v", err)
+	}
+	defer pool.Close()
+	store := auth.NewStore(pool)
+	if err := store.Migrate(ctx); err != nil {
+		log.Fatalf("failed to migrate auth db: %v", err)
+	}
+	deps.AuthStore = store
+	deps.AuthMW = auth.NewMiddleware(store, *authHost, *domain)
 
 	if *sharedDSN != "" {
 		ctx := context.Background()
