@@ -7,6 +7,7 @@ import (
 
 func TestLoginLimiter(t *testing.T) {
 	l := NewLoginLimiter(3, time.Minute)
+	defer l.Stop()
 	ip := "10.0.0.1"
 	email := "user@example.com"
 
@@ -22,8 +23,10 @@ func TestLoginLimiter(t *testing.T) {
 
 func TestLoginLimiterEvictsStaleKeys(t *testing.T) {
 	l := NewLoginLimiter(3, 50*time.Millisecond)
+	defer l.Stop()
 	ip := "10.0.0.2"
 	email := "user@example.com"
+	key := rateLimitKey{identifier: ip, email: email}
 
 	if !l.allow(ip, email) {
 		t.Fatal("first attempt should be allowed")
@@ -31,7 +34,7 @@ func TestLoginLimiterEvictsStaleKeys(t *testing.T) {
 	if len(l.attempts) != 1 {
 		t.Fatalf("expected 1 key after attempt, got %d", len(l.attempts))
 	}
-	old := l.attempts[ip+"|"+email][0]
+	old := l.attempts[key][0]
 
 	time.Sleep(60 * time.Millisecond)
 
@@ -39,7 +42,7 @@ func TestLoginLimiterEvictsStaleKeys(t *testing.T) {
 		t.Fatal("attempt after window should be allowed")
 	}
 	// The stale entry was evicted during filtering; only the fresh attempt remains.
-	times := l.attempts[ip+"|"+email]
+	times := l.attempts[key]
 	if len(times) != 1 {
 		t.Fatalf("expected 1 fresh entry after eviction, got %d", len(times))
 	}

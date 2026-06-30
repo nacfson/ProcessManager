@@ -46,6 +46,7 @@ func main() {
 	}
 
 	limiter := auth.NewLoginLimiter(5, time.Minute)
+	defer limiter.Stop()
 	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, limiter, splitAndTrim(*apiAllowedOrigins))
 	if err != nil {
 		log.Fatalf("failed to create auth handler: %v", err)
