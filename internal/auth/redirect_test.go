@@ -1,0 +1,30 @@
+package auth
+
+import "testing"
+
+func TestValidateReturnTo(t *testing.T) {
+	cookieDomain := "nacfson.cloud"
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"empty returns default", "", "https://nacfson.cloud", false},
+		{"allowed path", "/processes", "https://nacfson.cloud/processes", false},
+		{"allowed host", "https://manager.nacfson.cloud/foo", "https://manager.nacfson.cloud/foo", false},
+		{"rejected external host", "https://evil.com", "", true},
+		{"rejected schemeless", "//evil.com", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := validateReturnTo(tt.input, cookieDomain)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateReturnTo(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("validateReturnTo(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

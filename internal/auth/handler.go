@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -94,8 +95,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	password := r.FormValue("password")
 	returnTo := r.FormValue("return_to")
-	if returnTo == "" {
-		returnTo = "https://" + h.cookieDomain
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain)
+	if err != nil {
+		h.redirectLogin(w, r, "invalid request")
+		return
 	}
 
 	user, err := h.store.GetUserByEmail(r.Context(), email)
@@ -123,7 +126,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	SetSessionCookie(w, token, h.sessionTTL, h.cookieDomain)
-	http.Redirect(w, r, returnTo, http.StatusFound)
+	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
 }
 
 // Logout clears the session.
@@ -132,7 +135,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		_ = h.store.DeleteSession(r.Context(), HashSessionToken(token))
 	}
 	ClearSessionCookie(w, h.cookieDomain)
-	http.Redirect(w, r, "https://"+h.cookieDomain, http.StatusFound)
+	validatedReturnTo, _ := validateReturnTo("", h.cookieDomain)
+	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
 }
 
 // APILogin authenticates a user and returns a bearer session token.
@@ -318,18 +322,43 @@ func (h *Handler) allowAPIOrigin(w http.ResponseWriter, r *http.Request) bool {
 	if origin == "" {
 		return true
 	}
+	if h.isAllowedOrigin(origin) {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		w.Header().Set("Access-Control-Max-Age", "300")
+		return true
+	}
+
+	log.Printf("[auth] rejecting API origin %q (allowed=%v, cookieDomain=%q)", origin, h.apiAllowedOrigins, h.cookieDomain)
+	writeAPIError(w, http.StatusForbidden, "origin is not allowed")
+	return false
+}
+
+func (h *Handler) isAllowedOrigin(origin string) bool {
 	for _, allowed := range h.apiAllowedOrigins {
 		if origin == allowed {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-			w.Header().Set("Access-Control-Max-Age", "300")
 			return true
 		}
 	}
-	writeAPIError(w, http.StatusForbidden, "origin is not allowed")
-	return false
+
+	// Allow any subdomain of the configured cookie domain so projects under the
+	// same root domain (e.g. pn.nacfson.cloud, portfolio.nacfson.cloud) can call
+	// the central auth API without listing every host explicitly.
+	if h.cookieDomain == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	cookieDomain := strings.ToLower(strings.TrimPrefix(h.cookieDomain, "."))
+	if host == cookieDomain {
+		return true
+	}
+	return strings.HasSuffix(host, "."+cookieDomain)
 }
 
 func apiUserFromSession(sess *Session) apiUserResponse {
@@ -355,9 +384,12 @@ func (h *Handler) redirectLogin(w http.ResponseWriter, r *http.Request, message 
 	if returnTo == "" {
 		returnTo = r.URL.Query().Get("rd")
 	}
-	q := "?error=" + url.QueryEscape(message)
-	if returnTo != "" {
-		q += "&rd=" + url.QueryEscape(returnTo)
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain)
+	if err != nil {
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain)
 	}
+
+	q := "?error=" + url.QueryEscape(message)
+	q += "&rd=" + url.QueryEscape(validatedReturnTo)
 	http.Redirect(w, r, "/login"+q, http.StatusFound)
 }
