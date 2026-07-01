@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"processmanager/internal/models"
 
@@ -21,6 +23,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 )
+
+// Prevent unused time import compiler error
+var _ time.Time
 
 const (
 	ManagedByLabel = "app.kubernetes.io/managed-by"
@@ -44,7 +49,7 @@ type ClientInterface interface {
 
 // Client wraps a Kubernetes clientset for managing processes.
 type Client struct {
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 }
 
 // NewClient creates a Client using in-cluster config or ~/.kube/config.
@@ -266,26 +271,227 @@ func (c *Client) GetPodLogs(ctx context.Context, namespace, name string) (string
 
 // ListNodes returns status for all cluster nodes.
 func (c *Client) ListNodes(ctx context.Context) ([]NodeInfo, error) {
-	// Implemented in Task 3
-	return nil, nil
+	nodeList, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+
+	var nodes []NodeInfo
+	for _, n := range nodeList.Items {
+		var ready bool
+		for _, cond := range n.Status.Conditions {
+			if cond.Type == corev1.NodeReady {
+				ready = cond.Status == corev1.ConditionTrue
+				break
+			}
+		}
+
+		conditions := make([]NodeCondition, 0, len(n.Status.Conditions))
+		for _, cond := range n.Status.Conditions {
+			conditions = append(conditions, NodeCondition{
+				Type:   string(cond.Type),
+				Status: cond.Status == corev1.ConditionTrue,
+			})
+		}
+
+		var capacityCPU, capacityMem, allocCPU, allocMem string
+		if cpu := n.Status.Capacity.Cpu(); cpu != nil {
+			capacityCPU = cpu.String()
+		}
+		if mem := n.Status.Capacity.Memory(); mem != nil {
+			capacityMem = mem.String()
+		}
+		if cpu := n.Status.Allocatable.Cpu(); cpu != nil {
+			allocCPU = cpu.String()
+		}
+		if mem := n.Status.Allocatable.Memory(); mem != nil {
+			allocMem = mem.String()
+		}
+
+		nodes = append(nodes, NodeInfo{
+			Name:        n.Name,
+			Arch:        n.Labels["kubernetes.io/arch"],
+			Ready:       ready,
+			Conditions:  conditions,
+			CapacityCPU: capacityCPU,
+			CapacityMem: capacityMem,
+			AllocCPU:    allocCPU,
+			AllocMem:    allocMem,
+		})
+	}
+
+	return nodes, nil
 }
 
 // ListPods returns pod details for a managed process.
 func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([]PodInfo, error) {
-	// Implemented in Task 3
-	return nil, nil
+	selector := labels.SelectorFromSet(map[string]string{
+		ManagedByLabel: ManagedByValue,
+		PartOfLabel:    processName,
+	})
+	pods, err := c.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector.String(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+
+	var podInfos []PodInfo
+	for _, p := range pods.Items {
+		var restarts int32
+		for _, cs := range p.Status.ContainerStatuses {
+			restarts += cs.RestartCount
+		}
+		for _, cs := range p.Status.InitContainerStatuses {
+			restarts += cs.RestartCount
+		}
+
+		var lastTermReason string
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
+				lastTermReason = cs.State.Terminated.Reason
+			} else if cs.LastTerminationState.Terminated != nil && cs.LastTerminationState.Terminated.Reason != "" {
+				lastTermReason = cs.LastTerminationState.Terminated.Reason
+			}
+		}
+		for _, cs := range p.Status.InitContainerStatuses {
+			if lastTermReason == "" {
+				if cs.State.Terminated != nil && cs.State.Terminated.Reason != "" {
+					lastTermReason = cs.State.Terminated.Reason
+				} else if cs.LastTerminationState.Terminated != nil && cs.LastTerminationState.Terminated.Reason != "" {
+					lastTermReason = cs.LastTerminationState.Terminated.Reason
+				}
+			}
+		}
+
+		var reqCPU, reqMem, limCPU, limMem resource.Quantity
+		var hasReqCPU, hasReqMem, hasLimCPU, hasLimMem bool
+		for _, container := range p.Spec.Containers {
+			if cpu, ok := container.Resources.Requests[corev1.ResourceCPU]; ok {
+				reqCPU.Add(cpu)
+				hasReqCPU = true
+			}
+			if mem, ok := container.Resources.Requests[corev1.ResourceMemory]; ok {
+				reqMem.Add(mem)
+				hasReqMem = true
+			}
+			if cpu, ok := container.Resources.Limits[corev1.ResourceCPU]; ok {
+				limCPU.Add(cpu)
+				hasLimCPU = true
+			}
+			if mem, ok := container.Resources.Limits[corev1.ResourceMemory]; ok {
+				limMem.Add(mem)
+				hasLimMem = true
+			}
+		}
+
+		var requestsCPUStr, requestsMemStr, limitsCPUStr, limitsMemStr string
+		if hasReqCPU {
+			requestsCPUStr = reqCPU.String()
+		}
+		if hasReqMem {
+			requestsMemStr = reqMem.String()
+		}
+		if hasLimCPU {
+			limitsCPUStr = limCPU.String()
+		}
+		if hasLimMem {
+			limitsMemStr = limMem.String()
+		}
+
+		podInfos = append(podInfos, PodInfo{
+			Name:           p.Name,
+			Phase:          string(p.Status.Phase),
+			Restarts:       restarts,
+			LastTermReason: lastTermReason,
+			CreatedAt:      p.CreationTimestamp.Time,
+			RequestsCPU:    requestsCPUStr,
+			RequestsMem:    requestsMemStr,
+			LimitsCPU:      limitsCPUStr,
+			LimitsMem:      limitsMemStr,
+		})
+	}
+
+	return podInfos, nil
 }
 
 // ListEvents returns recent events for managed processes.
 func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([]EventInfo, error) {
-	// Implemented in Task 3
-	return nil, nil
+	eventList, err := c.clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+
+	var warnings []EventInfo
+	for _, e := range eventList.Items {
+		if e.Type != "Warning" {
+			continue
+		}
+
+		t := e.LastTimestamp.Time
+		if t.IsZero() {
+			if !e.EventTime.IsZero() {
+				t = e.EventTime.Time
+			} else {
+				t = e.FirstTimestamp.Time
+			}
+		}
+		if t.IsZero() {
+			t = e.CreationTimestamp.Time
+		}
+
+		warnings = append(warnings, EventInfo{
+			Type:           e.Type,
+			Reason:         e.Reason,
+			Message:        e.Message,
+			InvolvedObject: fmt.Sprintf("%s/%s", e.InvolvedObject.Kind, e.InvolvedObject.Name),
+			LastTimestamp:  t,
+		})
+	}
+
+	sort.Slice(warnings, func(i, j int) bool {
+		return warnings[i].LastTimestamp.After(warnings[j].LastTimestamp)
+	})
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if len(warnings) > limit {
+		warnings = warnings[:limit]
+	}
+
+	return warnings, nil
 }
 
 // GetProcessDetail returns aggregated detail for a single process.
 func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (*ProcessDetail, error) {
-	// Implemented in Task 3
-	return nil, nil
+	proc, err := c.GetProcess(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+
+	pods, err := c.ListPods(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+
+	allEvents, err := c.ListEvents(ctx, namespace, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	var events []EventInfo
+	for _, e := range allEvents {
+		if strings.Contains(e.InvolvedObject, name) {
+			events = append(events, e)
+		}
+	}
+
+	return &ProcessDetail{
+		Process: *proc,
+		Pods:    pods,
+		Events:  events,
+	}, nil
 }
 
 func strPtr(s string) *string {
