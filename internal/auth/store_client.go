@@ -40,7 +40,13 @@ func (s *HTTPAuthStore) GetSessionByTokenHash(ctx context.Context, tokenHash str
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, nil
+		var errResp map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil {
+			if msg, ok := errResp["error"]; ok && (msg == "invalid session" || msg == "missing session cookie") {
+				return nil, nil
+			}
+		}
+		return nil, fmt.Errorf("internal API authentication failed: verify AUTH_INTERNAL_TOKEN configuration")
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

@@ -162,6 +162,22 @@ func TestHTTPAuthStore(t *testing.T) {
 		}
 	})
 
+	t.Run("GetSessionByTokenHash Unauthorized (invalid token)", func(t *testing.T) {
+		badStore := NewHTTPAuthStore(server.URL, "wrong-token")
+		sess, err := badStore.GetSessionByTokenHash(ctx, "valid-hash")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if sess != nil {
+			t.Errorf("expected nil session on authentication failure, got %+v", sess)
+		}
+		expectedErr := "internal API authentication failed: verify AUTH_INTERNAL_TOKEN configuration"
+		if err.Error() != expectedErr {
+			t.Errorf("expected error %q, got %q", expectedErr, err.Error())
+		}
+	})
+
+
 	t.Run("CreateProject Success", func(t *testing.T) {
 		p, err := store.CreateProject(ctx, "new-project", "ns-new", "new.example.com", "simple", false, true)
 		if err != nil {

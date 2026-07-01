@@ -14,6 +14,8 @@ import (
 	"processmanager/web/templates"
 )
 
+var AuthHost string
+
 // AuthStore abstracts auth/shared persistence for handler testing.
 type AuthStore interface {
 	CreateProject(ctx context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*auth.Project, error)
@@ -104,6 +106,10 @@ func render(w http.ResponseWriter, contentType string, tmpl *template.Template, 
 // function pre-renders that block and injects it as ContentHTML so the shared
 // layout can place it without all pages fighting over a global "content" block.
 func Render(tmpl *template.Template, w http.ResponseWriter, r *http.Request, name string, data any) {
+	if m, ok := data.(map[string]any); ok {
+		m["AuthHost"] = AuthHost
+		m["ManagerHost"] = r.Host
+	}
 	if sess := auth.UserContext(r.Context()); sess != nil {
 		if m, ok := data.(map[string]any); ok {
 			m["UserEmail"] = sess.Email

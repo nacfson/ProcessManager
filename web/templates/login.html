@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In / Register — Nacfson Cloud</title>
+    <title>Sign In — Nacfson Cloud</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -236,23 +236,7 @@
             text-decoration: underline;
         }
 
-        /* Hide-show transitions for Login vs Register */
-        .register-only {
-            display: none;
-            opacity: 0;
-            transform: translateY(10px);
-        }
-
-        .card.state-register .register-only {
-            display: block;
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        .card.state-register .login-only {
-            display: none;
-            opacity: 0;
-        }
+        /* Hide-show transitions for Login */
     </style>
 </head>
 <body>
@@ -277,20 +261,9 @@
             </div>
             {{end}}
 
-            <!-- Login / Register Form -->
+            <!-- Login Form -->
             <form id="auth-form" method="POST" action="/login">
                 <input type="hidden" name="return_to" value="{{.ReturnTo}}">
-
-                <!-- Username (Register Only) -->
-                <div class="form-group register-only">
-                    <label for="name">Full Name</label>
-                    <div class="input-wrapper">
-                        <input type="text" id="name" name="name" placeholder="John Doe">
-                        <span class="input-icon">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                        </span>
-                    </div>
-                </div>
 
                 <!-- Email -->
                 <div class="form-group">
@@ -314,66 +287,15 @@
                     </div>
                 </div>
 
-                <!-- Confirm Password (Register Only) -->
-                <div class="form-group register-only">
-                    <label for="confirm-password">Confirm Password</label>
-                    <div class="input-wrapper">
-                        <input type="password" id="confirm-password" name="confirm_password" placeholder="••••••••">
-                        <span class="input-icon">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                        </span>
-                    </div>
-                </div>
-
                 <!-- Submit Button -->
                 <button type="submit" id="submit-btn" style="margin-top: 1rem;">Sign in</button>
             </form>
 
-            <!-- Toggler Link -->
+            <!-- Footer Text -->
             <div class="footer-text">
-                <span id="toggle-prefix">Don't have an account?</span> 
-                <a href="#" id="toggle-mode-link" onclick="toggleState(event)">Sign up</a>
+                <span style="font-size: 0.875rem; color: var(--text-secondary);">Contact your administrator to request an account.</span>
             </div>
         </div>
     </div>
-
-    <script>
-        function toggleState(e) {
-            e.preventDefault();
-            const card = document.getElementById('auth-card');
-            const form = document.getElementById('auth-form');
-            const title = document.getElementById('auth-title');
-            const subtitle = document.getElementById('auth-subtitle');
-            const submitBtn = document.getElementById('submit-btn');
-            const togglePrefix = document.getElementById('toggle-prefix');
-            const toggleLink = document.getElementById('toggle-mode-link');
-            const nameInput = document.getElementById('name');
-            const confirmPassInput = document.getElementById('confirm-password');
-
-            if (card.classList.contains('state-register')) {
-                // Change back to Login mode
-                card.classList.remove('state-register');
-                form.action = '/login';
-                title.textContent = 'Sign in';
-                subtitle.textContent = 'to continue to Nacfson Cloud';
-                submitBtn.textContent = 'Sign in';
-                togglePrefix.textContent = "Don't have an account?";
-                toggleLink.textContent = 'Sign up';
-                nameInput.required = false;
-                confirmPassInput.required = false;
-            } else {
-                // Change to Register mode
-                card.classList.add('state-register');
-                form.action = '/register';
-                title.textContent = 'Create account';
-                subtitle.textContent = 'Get started with Nacfson Cloud';
-                submitBtn.textContent = 'Register';
-                togglePrefix.textContent = 'Already have an account?';
-                toggleLink.textContent = 'Sign in';
-                nameInput.required = true;
-                confirmPassInput.required = true;
-            }
-        }
-    </script>
 </body>
 </html>

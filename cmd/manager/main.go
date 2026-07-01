@@ -32,6 +32,8 @@ func main() {
 	fakeK8s := flag.Bool("fake-k8s", false, "use an in-memory fake Kubernetes client")
 	flag.Parse()
 
+	handlers.AuthHost = *authHost
+
 	useFake := *fakeK8s || os.Getenv("USE_FAKE_K8S") == "true"
 
 	var client k8s.ClientInterface
