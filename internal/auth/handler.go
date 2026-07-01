@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -128,6 +129,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("OPTIONS /api/auth/me", h.APIOptions)
 	mux.HandleFunc("GET /api/auth/me", h.APIMe)
 	mux.HandleFunc("GET /healthz", h.Healthz)
+
+	// Internal APIs
+	mux.Handle("GET /api/internal/session", h.verifyInternalToken(http.HandlerFunc(h.InternalSession)))
+	mux.Handle("GET /api/internal/projects", h.verifyInternalToken(http.HandlerFunc(h.InternalListProjects)))
+	mux.Handle("POST /api/internal/projects", h.verifyInternalToken(http.HandlerFunc(h.InternalCreateProject)))
+	mux.Handle("GET /api/internal/users", h.verifyInternalToken(http.HandlerFunc(h.InternalListUsers)))
+	mux.Handle("POST /api/internal/audit-events", h.verifyInternalToken(http.HandlerFunc(h.InternalLogAudit)))
 }
 
 // LoginForm renders the login page.
@@ -436,4 +444,176 @@ func (h *Handler) redirectLogin(w http.ResponseWriter, r *http.Request, message 
 	q := "?error=" + url.QueryEscape(message)
 	q += "&rd=" + url.QueryEscape(validatedReturnTo)
 	http.Redirect(w, r, "/login"+q, http.StatusFound)
+}
+
+
+type internalSessionResponse struct {
+	UserID    string    `json:"user_id"`
+	Email     string    `json:"email"`
+	IsAdmin   bool      `json:"is_admin"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type internalProjectResponse struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Namespace   string    `json:"namespace"`
+	DomainHost  string    `json:"domain_host"`
+	Type        string    `json:"type"`
+	DBRequired  bool      `json:"db_required"`
+	AuthEnabled bool      `json:"auth_enabled"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type internalCreateProjectRequest struct {
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace"`
+	DomainHost  string `json:"domain_host"`
+	Type        string `json:"type"`
+	DBRequired  bool   `json:"db_required"`
+	AuthEnabled bool   `json:"auth_enabled"`
+}
+
+type internalUserResponse struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	IsAdmin   bool      `json:"is_admin"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type internalAuditEventRequest struct {
+	ActorEmail   string `json:"actor_email"`
+	Action       string `json:"action"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
+}
+
+func (h *Handler) verifyInternalToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expected := os.Getenv("AUTH_INTERNAL_TOKEN")
+		if expected == "" {
+			writeAPIError(w, http.StatusUnauthorized, "internal token not configured")
+			return
+		}
+		token := BearerToken(r)
+		if token == "" || token != expected {
+			writeAPIError(w, http.StatusUnauthorized, "invalid internal token")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (h *Handler) InternalSession(w http.ResponseWriter, r *http.Request) {
+	var token string
+	if c, err := r.Cookie("session"); err == nil {
+		token = c.Value
+	} else if c, err := r.Cookie(SessionCookieName); err == nil {
+		token = c.Value
+	}
+
+	if token == "" {
+		writeAPIError(w, http.StatusUnauthorized, "missing session cookie")
+		return
+	}
+
+	sess, err := h.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if sess == nil {
+		writeAPIError(w, http.StatusUnauthorized, "invalid session")
+		return
+	}
+
+	writeAPIJSON(w, http.StatusOK, internalSessionResponse{
+		UserID:    sess.UserID,
+		Email:     sess.Email,
+		IsAdmin:   sess.IsAdmin,
+		ExpiresAt: sess.ExpiresAt,
+	})
+}
+
+func (h *Handler) InternalListProjects(w http.ResponseWriter, r *http.Request) {
+	projects, err := h.store.ListProjects(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := make([]internalProjectResponse, 0, len(projects))
+	for _, p := range projects {
+		resp = append(resp, internalProjectResponse{
+			ID:          p.ID,
+			Name:        p.Name,
+			Namespace:   p.Namespace,
+			DomainHost:  p.DomainHost,
+			Type:        p.Type,
+			DBRequired:  p.DBRequired,
+			AuthEnabled: p.AuthEnabled,
+			CreatedAt:   p.CreatedAt,
+		})
+	}
+	writeAPIJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) InternalCreateProject(w http.ResponseWriter, r *http.Request) {
+	var req internalCreateProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	p, err := h.store.CreateProject(r.Context(), req.Name, req.Namespace, req.DomainHost, req.Type, req.DBRequired, req.AuthEnabled)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeAPIJSON(w, http.StatusCreated, internalProjectResponse{
+		ID:          p.ID,
+		Name:        p.Name,
+		Namespace:   p.Namespace,
+		DomainHost:  p.DomainHost,
+		Type:        p.Type,
+		DBRequired:  p.DBRequired,
+		AuthEnabled: p.AuthEnabled,
+		CreatedAt:   p.CreatedAt,
+	})
+}
+
+func (h *Handler) InternalListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.store.ListUsers(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := make([]internalUserResponse, 0, len(users))
+	for _, u := range users {
+		resp = append(resp, internalUserResponse{
+			ID:        u.ID,
+			Email:     u.Email,
+			IsAdmin:   u.IsAdmin,
+			CreatedAt: u.CreatedAt,
+		})
+	}
+	writeAPIJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) InternalLogAudit(w http.ResponseWriter, r *http.Request) {
+	var req internalAuditEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	err := h.store.LogAuditEvent(r.Context(), req.ActorEmail, req.Action, req.ResourceType, req.ResourceID)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeAPIJSON(w, http.StatusCreated, map[string]string{"status": "created"})
 }
