@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"processmanager/internal/k8s"
 	"processmanager/internal/models"
@@ -15,6 +16,15 @@ type Client struct {
 	Logs string
 	// ErrListProcesses, if set, is returned by ListProcesses.
 	ErrListProcesses error
+
+	// Nodes holds fake node data for ListNodes.
+	Nodes []k8s.NodeInfo
+	// Pods holds fake pod data keyed by process name for ListPods.
+	Pods map[string][]k8s.PodInfo
+	// Events holds fake events for ListEvents.
+	Events []k8s.EventInfo
+	// ErrListNodes, if set, is returned by ListNodes.
+	ErrListNodes error
 }
 
 // NewClient creates an empty fake client.
@@ -58,4 +68,47 @@ func (c *Client) GetPodLogs(ctx context.Context, namespace, name string) (string
 		return c.Logs, nil
 	}
 	return fmt.Sprintf("fake logs for %s/%s", namespace, name), nil
+}
+
+func (c *Client) ListNodes(ctx context.Context) ([]k8s.NodeInfo, error) {
+	if c.ErrListNodes != nil {
+		return nil, c.ErrListNodes
+	}
+	return c.Nodes, nil
+}
+
+func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([]k8s.PodInfo, error) {
+	if c.Pods == nil {
+		return nil, nil
+	}
+	return c.Pods[processName], nil
+}
+
+func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([]k8s.EventInfo, error) {
+	if limit <= 0 || limit >= len(c.Events) {
+		return c.Events, nil
+	}
+	return c.Events[:limit], nil
+}
+
+func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (*k8s.ProcessDetail, error) {
+	proc, err := c.GetProcess(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	pods, _ := c.ListPods(ctx, namespace, name)
+	allEvents, _ := c.ListEvents(ctx, namespace, 0)
+
+	// Filter events related to this process.
+	var events []k8s.EventInfo
+	for _, e := range allEvents {
+		if strings.Contains(e.InvolvedObject, name) {
+			events = append(events, e)
+		}
+	}
+	return &k8s.ProcessDetail{
+		Process: *proc,
+		Pods:    pods,
+		Events:  events,
+	}, nil
 }

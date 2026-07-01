@@ -36,6 +36,10 @@ type ClientInterface interface {
 	CreateProcess(ctx context.Context, p models.Process, domain string) error
 	DeleteProcess(ctx context.Context, namespace, name string) error
 	GetPodLogs(ctx context.Context, namespace, name string) (string, error)
+	ListNodes(ctx context.Context) ([]NodeInfo, error)
+	ListPods(ctx context.Context, namespace, processName string) ([]PodInfo, error)
+	ListEvents(ctx context.Context, namespace string, limit int) ([]EventInfo, error)
+	GetProcessDetail(ctx context.Context, namespace, name string) (*ProcessDetail, error)
 }
 
 // Client wraps a Kubernetes clientset for managing processes.
@@ -260,6 +264,30 @@ func (c *Client) GetPodLogs(ctx context.Context, namespace, name string) (string
 	return buf.String(), nil
 }
 
+// ListNodes returns status for all cluster nodes.
+func (c *Client) ListNodes(ctx context.Context) ([]NodeInfo, error) {
+	// Implemented in Task 3
+	return nil, nil
+}
+
+// ListPods returns pod details for a managed process.
+func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([]PodInfo, error) {
+	// Implemented in Task 3
+	return nil, nil
+}
+
+// ListEvents returns recent events for managed processes.
+func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([]EventInfo, error) {
+	// Implemented in Task 3
+	return nil, nil
+}
+
+// GetProcessDetail returns aggregated detail for a single process.
+func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (*ProcessDetail, error) {
+	// Implemented in Task 3
+	return nil, nil
+}
+
 func strPtr(s string) *string {
 	return &s
 }
@@ -295,4 +323,3 @@ func (c *Client) deploymentToProcess(d appsv1.Deployment) models.Process {
 	}
 	return p
 }
-
