@@ -45,6 +45,9 @@ func NewTemplate() (*template.Template, error) {
 		"lower": strings.ToLower,
 		"upper": strings.ToUpper,
 		"timeago": func(t time.Time) string {
+			if t.IsZero() {
+				return "never"
+			}
 			d := time.Since(t)
 			switch {
 			case d < time.Minute:

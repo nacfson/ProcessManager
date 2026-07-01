@@ -108,6 +108,23 @@ func TestHomeRendersProcessHealth(t *testing.T) {
 		Total:     0,
 	}, "test.local")
 
+	// Process with 1/1 replicas but having restarts > 0 in its pods -> Should be "degraded"
+	_ = fc.CreateProcess(ctx, models.Process{
+		Name:      "proc-restarts-degraded",
+		Namespace: "test-ns",
+		Ready:     1,
+		Total:     1,
+	}, "test.local")
+	fc.Pods = map[string][]k8s.PodInfo{
+		"proc-restarts-degraded": {
+			{
+				Name:     "proc-restarts-degraded-pod-1",
+				Phase:    "Running",
+				Restarts: 3,
+			},
+		},
+	}
+
 	deps := handlers.Deps{
 		Client:    fc,
 		Namespace: "test-ns",
@@ -138,6 +155,24 @@ func TestHomeRendersProcessHealth(t *testing.T) {
 	}
 	if !strings.Contains(body, "proc-scaleddown") {
 		t.Errorf("missing proc-scaleddown process name")
+	}
+	if !strings.Contains(body, "proc-restarts-degraded") {
+		t.Errorf("missing proc-restarts-degraded process name")
+	}
+
+	// Verify that proc-restarts-degraded has degraded status
+	idx := strings.Index(body, "/processes/proc-restarts-degraded/detail")
+	if idx == -1 {
+		t.Errorf("expected proc-restarts-degraded detail link to be present")
+	} else {
+		start := idx - 200
+		if start < 0 {
+			start = 0
+		}
+		snippet := body[start:idx]
+		if !strings.Contains(snippet, "status-dot--degraded") {
+			t.Errorf("expected proc-restarts-degraded to have degraded status, but status-dot--degraded not found near it")
+		}
 	}
 }
 
