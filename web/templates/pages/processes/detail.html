@@ -1,0 +1,104 @@
+{{template "components/layout" .}}
+
+{{define "pages/processes/detail-content"}}
+<style>
+    .overview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    .overview-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    .overview-item .label {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+    }
+    .overview-item .value {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text);
+        word-break: break-all;
+    }
+    .status.running { color: #4ade80; }
+    .status.succeeded { color: #38bdf8; }
+    .status.failed { color: var(--danger); }
+    .status.pending { color: #facc15; }
+    
+    .logs-container {
+        background: #020617;
+        border: 1px solid #334155;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.85rem;
+        color: #f1f5f9;
+        overflow-y: auto;
+        max-height: 400px;
+        margin-top: 1rem;
+    }
+    .logs-stream {
+        margin: 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+</style>
+
+{{template "components/page-header" dict "Title" (print .Detail.Process.Name " Detail") "Action" "Back to List" "Href" "/processes"}}
+
+<div class="card">
+    <h3>Overview</h3>
+    <div class="overview-grid">
+        <div class="overview-item">
+            <span class="label">Container Image</span>
+            <span class="value">{{.Detail.Process.Image}}</span>
+        </div>
+        <div class="overview-item">
+            <span class="label">Replicas</span>
+            <span class="value">{{.Detail.Process.Ready}} / {{.Detail.Process.Total}}</span>
+        </div>
+        <div class="overview-item">
+            <span class="label">Architecture</span>
+            <span class="value">{{.Detail.Process.Arch}}</span>
+        </div>
+        <div class="overview-item">
+            <span class="label">Memory Limit</span>
+            <span class="value">{{if .Detail.Process.MemoryLimit}}{{.Detail.Process.MemoryLimit}}{{else}}None{{end}}</span>
+        </div>
+        <div class="overview-item">
+            <span class="label">Public URL</span>
+            <span class="value"><a href="{{.PublicURL}}" target="_blank">{{.PublicURL}}</a></span>
+        </div>
+        <div class="overview-item">
+            <span class="label">Created</span>
+            <span class="value">{{timeago .Detail.Process.CreatedAt}}</span>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Pods</h3>
+    <div id="pods-table-container" hx-get="/processes/{{.Detail.Process.Name}}/pods" hx-trigger="every 10s" hx-swap="innerHTML">
+        {{template "pages/processes/pods-fragment" .}}
+    </div>
+</div>
+
+<div class="card">
+    <h3>Events</h3>
+    <div id="events-table-container" hx-get="/processes/{{.Detail.Process.Name}}/events" hx-trigger="every 15s" hx-swap="innerHTML">
+        {{template "pages/processes/detail-events-fragment" .}}
+    </div>
+</div>
+
+<div class="card">
+    <h3>Logs</h3>
+    <div class="logs-container">
+        <pre id="process-logs" hx-get="/processes/{{.Detail.Process.Name}}/logs/stream" hx-trigger="every 2s" hx-swap="innerHTML" class="logs-stream">{{.Logs}}</pre>
+    </div>
+</div>
+{{end}}

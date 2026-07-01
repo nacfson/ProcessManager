@@ -8,8 +8,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"processmanager/internal/handlers"
+	"processmanager/internal/k8s"
 	"processmanager/internal/k8s/fake"
 	"processmanager/internal/models"
 )
@@ -291,6 +293,119 @@ func TestStatusNotFound(t *testing.T) {
 	}
 	if !strings.Contains(body, "Error") {
 		t.Errorf("expected error label, got %q", body)
+	}
+}
+
+func TestDetailRendersPage(t *testing.T) {
+	deps := newDeps(t)
+	mustCreate(t, deps, models.Process{Name: "app", Image: "img:v1", Namespace: "test-ns"})
+
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/detail", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "app Detail") {
+		t.Errorf("missing page title")
+	}
+	if !strings.Contains(body, "img:v1") {
+		t.Errorf("missing overview image")
+	}
+	if !strings.Contains(body, "fake logs for test-ns/app") {
+		t.Errorf("missing logs in pre-container")
+	}
+}
+
+func TestDetailNotFound(t *testing.T) {
+	deps := newDeps(t)
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/missing/detail", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestPodsFragmentRenders(t *testing.T) {
+	deps := newDeps(t)
+	fc := deps.Client.(*fake.Client)
+	fc.Pods = map[string][]k8s.PodInfo{
+		"app": {
+			{
+				Name:      "app-pod-1",
+				Phase:     "Running",
+				Restarts:  2,
+				CreatedAt: time.Now(),
+			},
+		},
+	}
+	mustCreate(t, deps, models.Process{Name: "app", Image: "img:v1", Namespace: "test-ns"})
+
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/pods", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "app-pod-1") {
+		t.Errorf("missing pod name")
+	}
+	if !strings.Contains(body, "Running") {
+		t.Errorf("missing pod phase")
+	}
+	if !strings.Contains(body, "2") {
+		t.Errorf("missing restart count")
+	}
+}
+
+func TestDetailEventsFragmentRenders(t *testing.T) {
+	deps := newDeps(t)
+	fc := deps.Client.(*fake.Client)
+	fc.Events = []k8s.EventInfo{
+		{
+			Type:           "Warning",
+			Reason:         "Failed",
+			Message:        "Back-off restarting failed container",
+			InvolvedObject: "Pod/app-pod-1",
+			LastTimestamp:  time.Now(),
+		},
+		{
+			Type:           "Warning",
+			Reason:         "Unrelated",
+			Message:        "Unrelated warning",
+			InvolvedObject: "Pod/other-pod",
+			LastTimestamp:  time.Now(),
+		},
+	}
+	mustCreate(t, deps, models.Process{Name: "app", Image: "img:v1", Namespace: "test-ns"})
+
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/events", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Back-off restarting failed container") {
+		t.Errorf("missing process warning event")
+	}
+	if strings.Contains(body, "Unrelated warning") {
+		t.Errorf("should not contain unrelated warning event")
 	}
 }
 

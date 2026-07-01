@@ -1,0 +1,39 @@
+<table>
+    <thead>
+        <tr>
+            <th>Pod</th>
+            <th>Phase</th>
+            <th>Restarts</th>
+            <th>Last Termination</th>
+            <th>Age</th>
+            <th>Resources</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{if .Detail.Pods}}
+            {{range .Detail.Pods}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td>
+                    <span class="status {{lower .Phase}}">{{.Phase}}</span>
+                </td>
+                <td>{{.Restarts}}</td>
+                <td>{{if .LastTermReason}}{{.LastTermReason}}{{else}}-{{end}}</td>
+                <td>{{timeago .CreatedAt}}</td>
+                <td>
+                    <div style="font-size: 0.85rem;">
+                        <strong>Req:</strong> {{if .RequestsCPU}}{{.RequestsCPU}}{{else}}-{{end}} CPU, {{if .RequestsMem}}{{.RequestsMem}}{{else}}-{{end}} Mem
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--muted);">
+                        <strong>Lim:</strong> {{if .LimitsCPU}}{{.LimitsCPU}}{{else}}-{{end}} CPU, {{if .LimitsMem}}{{.LimitsMem}}{{else}}-{{end}} Mem
+                    </div>
+                </td>
+            </tr>
+            {{end}}
+        {{else}}
+            <tr>
+                <td colspan="6" class="empty">No pods running.</td>
+            </tr>
+        {{end}}
+    </tbody>
+</table>

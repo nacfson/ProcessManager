@@ -1,0 +1,26 @@
+<table>
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>Type</th>
+            <th>Reason</th>
+            <th>Message</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{if .Detail.Events}}
+            {{range .Detail.Events}}
+            <tr>
+                <td style="white-space: nowrap;">{{timeago .LastTimestamp}}</td>
+                <td><span class="status error">{{.Type}}</span></td>
+                <td><strong>{{.Reason}}</strong></td>
+                <td>{{.Message}}</td>
+            </tr>
+            {{end}}
+        {{else}}
+            <tr>
+                <td colspan="4" class="empty">No warning events.</td>
+            </tr>
+        {{end}}
+    </tbody>
+</table>

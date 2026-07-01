@@ -1,5 +1,5 @@
 <tr id="process-{{.Name}}">
-    <td>{{.Name}}</td>
+    <td><a href="/processes/{{.Name}}/detail">{{.Name}}</a></td>
     <td>{{.Image}}</td>
     <td>{{.Arch}}</td>
     <td>
@@ -7,6 +7,7 @@
             {{template "pages/processes/status" dict "Status" "pending" "Label" "..."}}
         </span>
     </td>
+    <td>{{.Restarts}}</td>
     <td><a href="{{.PublicURL}}" target="_blank">{{.PublicURL}}</a></td>
     <td>
         <a href="/processes/{{.Name}}/logs">Logs</a>
