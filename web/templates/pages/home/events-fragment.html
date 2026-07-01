@@ -1,0 +1,26 @@
+{{if .Events}}
+<table>
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>Type</th>
+            <th>Object</th>
+            <th>Message</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Events}}
+        <tr>
+            <td style="white-space: nowrap; color: var(--muted);">{{timeago .LastTimestamp}}</td>
+            <td><span class="status error" style="background: rgba(248, 113, 113, 0.15); padding: 0.125rem 0.5rem; border-radius: 0.25rem;">{{.Type}}</span></td>
+            <td><code style="color: var(--accent);">{{.InvolvedObject}}</code></td>
+            <td style="color: #cbd5e1;">{{.Message}}</td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty">
+    <p>No warning events.</p>
+</div>
+{{end}}

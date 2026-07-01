@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"processmanager/internal/auth"
 	"processmanager/internal/k8s"
@@ -43,6 +44,19 @@ func NewTemplate() (*template.Template, error) {
 		"add":   func(a, b int) int { return a + b },
 		"lower": strings.ToLower,
 		"upper": strings.ToUpper,
+		"timeago": func(t time.Time) string {
+			d := time.Since(t)
+			switch {
+			case d < time.Minute:
+				return "just now"
+			case d < time.Hour:
+				return fmt.Sprintf("%dm ago", int(d.Minutes()))
+			case d < 24*time.Hour:
+				return fmt.Sprintf("%dh ago", int(d.Hours()))
+			default:
+				return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+			}
+		},
 		"dict": func(values ...any) (map[string]any, error) {
 			if len(values)%2 != 0 {
 				return nil, fmt.Errorf("dict expects even number of arguments")
