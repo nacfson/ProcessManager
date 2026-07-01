@@ -27,7 +27,7 @@ func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 
 // Index shows current platform settings.
 func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
-	handlers.Render(h.deps.Tmpl, w, "pages/settings/settings", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/settings/settings", map[string]any{
 		"Title":     "Settings",
 		"Nav":       "settings",
 		"Namespace": h.deps.Namespace,

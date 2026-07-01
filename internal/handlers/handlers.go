@@ -103,7 +103,13 @@ func render(w http.ResponseWriter, contentType string, tmpl *template.Template, 
 // Page templates define a content block named "<template-name>-content"; this
 // function pre-renders that block and injects it as ContentHTML so the shared
 // layout can place it without all pages fighting over a global "content" block.
-func Render(tmpl *template.Template, w http.ResponseWriter, name string, data any) {
+func Render(tmpl *template.Template, w http.ResponseWriter, r *http.Request, name string, data any) {
+	if sess := auth.UserContext(r.Context()); sess != nil {
+		if m, ok := data.(map[string]any); ok {
+			m["UserEmail"] = sess.Email
+			m["IsAdmin"] = sess.IsAdmin
+		}
+	}
 	if m, ok := data.(map[string]any); ok {
 		if _, exists := m["ContentHTML"]; !exists {
 			var buf strings.Builder

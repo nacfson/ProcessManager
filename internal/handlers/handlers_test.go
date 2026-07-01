@@ -36,7 +36,8 @@ func TestRequireAuthWithoutMiddleware(t *testing.T) {
 func TestRenderSetsContentTypeAndSucceeds(t *testing.T) {
 	tmpl := template.Must(template.New("ok").Parse("<p>{{.}}</p>"))
 	rec := httptest.NewRecorder()
-	Render(tmpl, rec, "ok", "hello")
+	req := httptest.NewRequest("GET", "/", nil)
+	Render(tmpl, rec, req, "ok", "hello")
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", rec.Code)
@@ -58,7 +59,8 @@ func TestRenderLogsMissingContentBlockAndContinues(t *testing.T) {
 
 	tmpl := template.Must(template.New("page").Parse("<html>{{.ContentHTML}}</html>"))
 	rec := httptest.NewRecorder()
-	Render(tmpl, rec, "page", map[string]any{})
+	req := httptest.NewRequest("GET", "/", nil)
+	Render(tmpl, rec, req, "page", map[string]any{})
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", rec.Code)
@@ -96,7 +98,8 @@ func TestRenderKeepsContentTypeOnTemplateError(t *testing.T) {
 	// Template that always fails to execute.
 	tmpl := template.Must(template.New("bad").Parse("{{.MissingMethod}}"))
 	rec := httptest.NewRecorder()
-	Render(tmpl, rec, "bad", struct{}{})
+	req := httptest.NewRequest("GET", "/", nil)
+	Render(tmpl, rec, req, "bad", struct{}{})
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("expected status 500, got %d", rec.Code)

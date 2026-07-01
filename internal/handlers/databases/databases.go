@@ -36,7 +36,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		dbs = list
 	}
-	handlers.Render(h.deps.Tmpl, w, "pages/databases/list", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/databases/list", map[string]any{
 		"Title":     "Databases",
 		"Nav":       "databases",
 		"Databases": dbs,

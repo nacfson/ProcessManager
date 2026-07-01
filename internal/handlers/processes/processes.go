@@ -45,7 +45,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	for i := range processes {
 		processes[i].PublicURL = fmt.Sprintf("https://%s.%s", processes[i].Name, h.deps.Domain)
 	}
-	handlers.Render(h.deps.Tmpl, w, "pages/processes/list", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/list", map[string]any{
 		"Title":     "Processes",
 		"Nav":       "processes",
 		"Namespace": h.deps.Namespace,
@@ -56,7 +56,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 // NewForm shows the create form.
 func (h *Handler) NewForm(w http.ResponseWriter, r *http.Request) {
-	handlers.Render(h.deps.Tmpl, w, "pages/processes/form", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/form", map[string]any{
 		"Title":     "New Process",
 		"Nav":       "processes",
 		"Namespace": h.deps.Namespace,
@@ -120,7 +120,7 @@ func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	handlers.Render(h.deps.Tmpl, w, "pages/processes/logs", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/logs", map[string]any{
 		"Title": name + " Logs",
 		"Nav":   "processes",
 		"Name":  name,

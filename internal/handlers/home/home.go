@@ -42,7 +42,7 @@ func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 			errMsg = "Failed to load dashboard data"
 		}
 	}
-	handlers.Render(h.deps.Tmpl, w, "pages/home/home", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/home/home", map[string]any{
 		"Title":        "Dashboard",
 		"Nav":          "home",
 		"Namespace":    h.deps.Namespace,

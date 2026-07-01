@@ -41,7 +41,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	handlers.Render(h.deps.Tmpl, w, "pages/activity/list", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/activity/list", map[string]any{
 		"Title":  "Activity",
 		"Nav":    "activity",
 		"Events": events,

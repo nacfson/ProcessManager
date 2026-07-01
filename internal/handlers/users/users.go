@@ -40,7 +40,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			errMsg = "Failed to load users"
 		}
 	}
-	handlers.Render(h.deps.Tmpl, w, "pages/users/list", map[string]any{
+	handlers.Render(h.deps.Tmpl, w, r, "pages/users/list", map[string]any{
 		"Title": "Users",
 		"Nav":   "users",
 		"Users": users,
