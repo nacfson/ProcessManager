@@ -24,7 +24,7 @@ func TestPodInfoHasRestarts(t *testing.T) {
 		Phase:          "Running",
 		Restarts:       3,
 		LastTermReason: "OOMKilled",
-		Age:            2 * time.Hour,
+		CreatedAt:      time.Now().Add(-2 * time.Hour),
 		RequestsMem:    "128Mi",
 		LimitsMem:      "256Mi",
 	}
