@@ -14,6 +14,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -91,6 +92,9 @@ func (c *Client) ListProcesses(ctx context.Context, namespace string) ([]models.
 func (c *Client) GetProcess(ctx context.Context, namespace, name string) (*models.Process, error) {
 	d, err := c.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, models.ErrProcessNotFound
+		}
 		return nil, err
 	}
 	if d.Labels[ManagedByLabel] != ManagedByValue {
