@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -115,5 +116,54 @@ func TestGetProcessDetailAggregates(t *testing.T) {
 	}
 	if len(detail.Pods) != 1 {
 		t.Errorf("expected 1 pod, got %d", len(detail.Pods))
+	}
+	if len(detail.Events) != 1 {
+		t.Errorf("expected 1 event, got %d", len(detail.Events))
+	} else if detail.Events[0].InvolvedObject != "pod/web-abc" {
+		t.Errorf("expected event for pod/web-abc, got %s", detail.Events[0].InvolvedObject)
+	}
+}
+
+func TestListNodesReturnsErrListNodes(t *testing.T) {
+	wantErr := errors.New("list nodes error")
+	fc := &Client{
+		ErrListNodes: wantErr,
+	}
+	_, err := fc.ListNodes(context.Background())
+	if err != wantErr {
+		t.Errorf("expected error %v, got %v", wantErr, err)
+	}
+}
+
+func TestListPodsReturnsErrListPods(t *testing.T) {
+	wantErr := errors.New("list pods error")
+	fc := &Client{
+		ErrListPods: wantErr,
+	}
+	_, err := fc.ListPods(context.Background(), "default", "web")
+	if err != wantErr {
+		t.Errorf("expected error %v, got %v", wantErr, err)
+	}
+}
+
+func TestListEventsReturnsErrListEvents(t *testing.T) {
+	wantErr := errors.New("list events error")
+	fc := &Client{
+		ErrListEvents: wantErr,
+	}
+	_, err := fc.ListEvents(context.Background(), "default", 10)
+	if err != wantErr {
+		t.Errorf("expected error %v, got %v", wantErr, err)
+	}
+}
+
+func TestGetProcessDetailReturnsErrGetProcessDetail(t *testing.T) {
+	wantErr := errors.New("get process detail error")
+	fc := &Client{
+		ErrGetProcessDetail: wantErr,
+	}
+	_, err := fc.GetProcessDetail(context.Background(), "default", "web")
+	if err != wantErr {
+		t.Errorf("expected error %v, got %v", wantErr, err)
 	}
 }

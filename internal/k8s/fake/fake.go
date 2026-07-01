@@ -25,6 +25,12 @@ type Client struct {
 	Events []k8s.EventInfo
 	// ErrListNodes, if set, is returned by ListNodes.
 	ErrListNodes error
+	// ErrListPods, if set, is returned by ListPods.
+	ErrListPods error
+	// ErrListEvents, if set, is returned by ListEvents.
+	ErrListEvents error
+	// ErrGetProcessDetail, if set, is returned by GetProcessDetail.
+	ErrGetProcessDetail error
 }
 
 // NewClient creates an empty fake client.
@@ -78,6 +84,9 @@ func (c *Client) ListNodes(ctx context.Context) ([]k8s.NodeInfo, error) {
 }
 
 func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([]k8s.PodInfo, error) {
+	if c.ErrListPods != nil {
+		return nil, c.ErrListPods
+	}
 	if c.Pods == nil {
 		return nil, nil
 	}
@@ -85,6 +94,9 @@ func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([
 }
 
 func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([]k8s.EventInfo, error) {
+	if c.ErrListEvents != nil {
+		return nil, c.ErrListEvents
+	}
 	if limit <= 0 || limit >= len(c.Events) {
 		return c.Events, nil
 	}
@@ -92,6 +104,9 @@ func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([
 }
 
 func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (*k8s.ProcessDetail, error) {
+	if c.ErrGetProcessDetail != nil {
+		return nil, c.ErrGetProcessDetail
+	}
 	proc, err := c.GetProcess(ctx, namespace, name)
 	if err != nil {
 		return nil, err
