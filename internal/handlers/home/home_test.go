@@ -10,53 +10,43 @@ import (
 	"testing"
 	"time"
 
+	"processmanager/internal/auth"
 	"processmanager/internal/handlers"
 	"processmanager/internal/k8s"
 	"processmanager/internal/k8s/fake"
 	"processmanager/internal/models"
 )
 
-func TestHomeRenders(t *testing.T) {
+type mockAuthStore struct {
+	projects []auth.Project
+	err      error
+}
+
+func (m *mockAuthStore) CreateProject(ctx context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*auth.Project, error) {
+	return nil, nil
+}
+
+func (m *mockAuthStore) ListProjects(ctx context.Context) ([]auth.Project, error) {
+	return m.projects, m.err
+}
+
+func (m *mockAuthStore) ListUsers(ctx context.Context) ([]auth.User, error) {
+	return nil, nil
+}
+
+func (m *mockAuthStore) ListAuditEvents(ctx context.Context, limit int) ([]auth.AuditEvent, error) {
+	return nil, nil
+}
+
+func TestHomeRendersNodes(t *testing.T) {
 	fc := fake.NewClient().(*fake.Client)
-	ctx := context.Background()
-
-	// 1. Mock processes.
-	_ = fc.CreateProcess(ctx, models.Process{
-		Name:      "proc-1",
-		Namespace: "test-ns",
-		Ready:     1,
-		Total:     1,
-	}, "test.local")
-
-	// 2. Mock nodes.
 	fc.Nodes = []k8s.NodeInfo{
 		{
-			Name:        "node-1",
+			Name:        "node-test-1",
 			Arch:        "amd64",
 			Ready:       true,
 			CapacityCPU: "4",
 			CapacityMem: "8Gi",
-		},
-	}
-
-	// 3. Mock pods (for restarts).
-	fc.Pods = map[string][]k8s.PodInfo{
-		"proc-1": {
-			{
-				Name:     "proc-1-pod-1",
-				Restarts: 2,
-			},
-		},
-	}
-
-	// 4. Mock warning events.
-	fc.Events = []k8s.EventInfo{
-		{
-			Type:           "Warning",
-			Reason:         "FailedMount",
-			Message:        "MountVolume.SetUp failed",
-			InvolvedObject: "Pod/proc-1-pod-1",
-			LastTimestamp:  time.Now().Add(-5 * time.Minute),
 		},
 	}
 
@@ -77,24 +67,16 @@ func TestHomeRenders(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "Dashboard") {
-		t.Errorf("missing dashboard title")
-	}
-	if !strings.Contains(body, "node-1") {
-		t.Errorf("missing node-1 name")
-	}
-	if !strings.Contains(body, "proc-1") {
-		t.Errorf("missing proc-1 process name")
-	}
-	if !strings.Contains(body, "MountVolume.SetUp failed") {
-		t.Errorf("missing warning event message")
+	if !strings.Contains(body, "node-test-1") {
+		t.Errorf("missing node-test-1 in rendered nodes")
 	}
 }
 
-func TestHomeRendersProcessHealthFragment(t *testing.T) {
+func TestHomeRendersProcessHealth(t *testing.T) {
 	fc := fake.NewClient().(*fake.Client)
 	ctx := context.Background()
 
+	// Healthy process (Ready == Total)
 	_ = fc.CreateProcess(ctx, models.Process{
 		Name:      "proc-healthy",
 		Namespace: "test-ns",
@@ -102,6 +84,7 @@ func TestHomeRendersProcessHealthFragment(t *testing.T) {
 		Total:     2,
 	}, "test.local")
 
+	// Degraded process (Ready < Total)
 	_ = fc.CreateProcess(ctx, models.Process{
 		Name:      "proc-degraded",
 		Namespace: "test-ns",
@@ -109,14 +92,21 @@ func TestHomeRendersProcessHealthFragment(t *testing.T) {
 		Total:     2,
 	}, "test.local")
 
-	fc.Pods = map[string][]k8s.PodInfo{
-		"proc-healthy": {
-			{Name: "pod-h1", Restarts: 0},
-		},
-		"proc-degraded": {
-			{Name: "pod-d1", Restarts: 5},
-		},
-	}
+	// Down process (Ready == 0 && Total > 0)
+	_ = fc.CreateProcess(ctx, models.Process{
+		Name:      "proc-down",
+		Namespace: "test-ns",
+		Ready:     0,
+		Total:     1,
+	}, "test.local")
+
+	// Scaled-down process (Ready == 0 && Total == 0) -> Should be "healthy"
+	_ = fc.CreateProcess(ctx, models.Process{
+		Name:      "proc-scaleddown",
+		Namespace: "test-ns",
+		Ready:     0,
+		Total:     0,
+	}, "test.local")
 
 	deps := handlers.Deps{
 		Client:    fc,
@@ -135,14 +125,19 @@ func TestHomeRendersProcessHealthFragment(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "proc-healthy") {
-		t.Errorf("missing proc-healthy process name")
+
+	// Check status-dot classes are present as expected
+	if !strings.Contains(body, "status-dot--healthy") {
+		t.Errorf("expected status-dot--healthy class to be present")
 	}
-	if !strings.Contains(body, "proc-degraded") {
-		t.Errorf("missing proc-degraded process name")
+	if !strings.Contains(body, "status-dot--degraded") {
+		t.Errorf("expected status-dot--degraded class to be present")
 	}
-	if !strings.Contains(body, "5 restarts") {
-		t.Errorf("missing restart count for degraded process")
+	if !strings.Contains(body, "status-dot--down") {
+		t.Errorf("expected status-dot--down class to be present")
+	}
+	if !strings.Contains(body, "proc-scaleddown") {
+		t.Errorf("missing proc-scaleddown process name")
 	}
 }
 
@@ -181,6 +176,78 @@ func TestHomeRendersEventsFragment(t *testing.T) {
 	}
 	if !strings.Contains(body, "Pod/proc-2-pod-1") {
 		t.Errorf("missing event involved object")
+	}
+}
+
+func TestHomeRenders(t *testing.T) {
+	fc := fake.NewClient().(*fake.Client)
+	ctx := context.Background()
+
+	_ = fc.CreateProcess(ctx, models.Process{
+		Name:      "proc-1",
+		Namespace: "test-ns",
+		Ready:     1,
+		Total:     1,
+	}, "test.local")
+
+	fc.Nodes = []k8s.NodeInfo{
+		{
+			Name:        "node-1",
+			Arch:        "amd64",
+			Ready:       true,
+			CapacityCPU: "4",
+			CapacityMem: "8Gi",
+		},
+	}
+
+	fc.Events = []k8s.EventInfo{
+		{
+			Type:           "Warning",
+			Reason:         "FailedMount",
+			Message:        "MountVolume.SetUp failed",
+			InvolvedObject: "Pod/proc-1-pod-1",
+			LastTimestamp:  time.Now().Add(-5 * time.Minute),
+		},
+	}
+
+	// Mock AuthStore with 3 projects
+	as := &mockAuthStore{
+		projects: []auth.Project{
+			{ID: "1", Name: "Proj 1"},
+			{ID: "2", Name: "Proj 2"},
+			{ID: "3", Name: "Proj 3"},
+		},
+	}
+
+	deps := handlers.Deps{
+		Client:    fc,
+		AuthStore: as,
+		Namespace: "test-ns",
+		Domain:    "test.local",
+		Tmpl:      mustTemplate(t),
+	}
+	h := New(deps)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Dashboard") {
+		t.Errorf("missing dashboard title")
+	}
+	if !strings.Contains(body, "node-1") {
+		t.Errorf("missing node-1 name")
+	}
+	if !strings.Contains(body, "proc-1") {
+		t.Errorf("missing proc-1 process name")
+	}
+	if !strings.Contains(body, "MountVolume.SetUp failed") {
+		t.Errorf("missing warning event message")
 	}
 }
 

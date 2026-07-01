@@ -65,15 +65,26 @@ func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 		errMsg = "Failed to load dashboard data"
 	}
 
+	projectCount := 0
+	if h.deps.AuthStore != nil {
+		if projects, err := h.deps.AuthStore.ListProjects(ctx); err == nil {
+			projectCount = len(projects)
+		} else {
+			slog.Error("list projects failed", "error", err)
+			errMsg = "Failed to load dashboard data"
+		}
+	}
+
 	handlers.Render(h.deps.Tmpl, w, r, "pages/home/home", map[string]any{
-		"Title":     "Dashboard",
-		"Nav":       "home",
-		"Namespace": h.deps.Namespace,
-		"Domain":    h.deps.Domain,
-		"Nodes":     nodes,
-		"Processes": healthItems,
-		"Events":    events,
-		"Error":     errMsg,
+		"Title":        "Dashboard",
+		"Nav":          "home",
+		"Namespace":    h.deps.Namespace,
+		"Domain":       h.deps.Domain,
+		"Nodes":        nodes,
+		"Processes":    healthItems,
+		"Events":       events,
+		"ProjectCount": projectCount,
+		"Error":        errMsg,
 	})
 }
 
@@ -126,7 +137,7 @@ func (h *Handler) buildHealthItems(ctx context.Context, processes []models.Proce
 		}
 
 		status := "healthy"
-		if p.Ready == 0 {
+		if p.Ready == 0 && p.Total > 0 {
 			status = "down"
 		} else if p.Ready < p.Total || restarts > 0 {
 			status = "degraded"
