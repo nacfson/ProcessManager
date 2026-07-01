@@ -25,19 +25,16 @@ spec:
           command: ["./manager"]
           ports:
             - containerPort: 8080
-          envFrom:
-            - secretRef:
-                name: manager-auth-db-secrets
-                optional: true
           env:
             - name: PORT
               value: "8080"
-            - name: AUTH_DATABASE_URL
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service.nacfson-auth.svc.cluster.local:8080"
+            - name: AUTH_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: manager-auth-db-secrets
-                  key: DATABASE_URL
-                  optional: true
+                  name: manager-auth-secrets
+                  key: AUTH_INTERNAL_TOKEN
             - name: SHARED_DATABASE_URL
               valueFrom:
                 secretKeyRef:

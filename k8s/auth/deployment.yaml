@@ -41,6 +41,11 @@ spec:
               value: "168h"
             - name: AUTH_API_ALLOWED_ORIGINS
               value: "https://pn.nacfson.cloud"
+            - name: AUTH_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: auth-bootstrap
+                  key: AUTH_INTERNAL_TOKEN
           readinessProbe:
             httpGet:
               path: /healthz
