@@ -417,7 +417,9 @@ func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([
 
 // ListEvents returns recent events for managed processes.
 func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([]EventInfo, error) {
-	eventList, err := c.clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
+	eventList, err := c.clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "type=Warning",
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
@@ -453,10 +455,7 @@ func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([
 		return warnings[i].LastTimestamp.After(warnings[j].LastTimestamp)
 	})
 
-	if limit <= 0 {
-		limit = 20
-	}
-	if len(warnings) > limit {
+	if limit > 0 && len(warnings) > limit {
 		warnings = warnings[:limit]
 	}
 
@@ -482,7 +481,12 @@ func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (
 
 	var events []EventInfo
 	for _, e := range allEvents {
-		if strings.Contains(e.InvolvedObject, name) {
+		parts := strings.SplitN(e.InvolvedObject, "/", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		objName := parts[1]
+		if objName == name || strings.HasPrefix(objName, name+"-") {
 			events = append(events, e)
 		}
 	}
