@@ -17,18 +17,23 @@ func UserContext(ctx context.Context) *Session {
 	return s
 }
 
+// SessionValidator defines the interface for verifying session tokens.
+type SessionValidator interface {
+	GetSessionByTokenHash(ctx context.Context, tokenHash string) (*Session, error)
+}
+
 // Middleware protects HTTP handlers by validating the session cookie.
 // If the session is invalid, it redirects to the auth login page.
 type Middleware struct {
-	store        *Store
+	validator    SessionValidator
 	authHost     string
 	cookieDomain string
 }
 
 // NewMiddleware creates an auth middleware.
-func NewMiddleware(store *Store, authHost, cookieDomain string) *Middleware {
+func NewMiddleware(validator SessionValidator, authHost, cookieDomain string) *Middleware {
 	return &Middleware{
-		store:        store,
+		validator:    validator,
 		authHost:     authHost,
 		cookieDomain: cookieDomain,
 	}
@@ -42,7 +47,7 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			m.redirect(w, r)
 			return
 		}
-		sess, err := m.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
+		sess, err := m.validator.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -61,7 +66,7 @@ func (m *Middleware) OptionalAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := SessionCookie(r)
 		if token != "" {
-			if sess, err := m.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token)); err == nil && sess != nil {
+			if sess, err := m.validator.GetSessionByTokenHash(r.Context(), HashSessionToken(token)); err == nil && sess != nil {
 				r = r.WithContext(context.WithValue(r.Context(), contextUserKey, sess))
 			}
 		}
