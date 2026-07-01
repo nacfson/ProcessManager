@@ -46,7 +46,7 @@ func TestInternalAPI(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	token, tokenHash, err := NewSessionToken()
+	_, tokenHash, err := NewSessionToken()
 	if err != nil {
 		t.Fatalf("new session token: %v", err)
 	}
@@ -85,13 +85,25 @@ func TestInternalAPI(t *testing.T) {
 	// 1. GET /api/internal/session
 	t.Run("GET /api/internal/session", func(t *testing.T) {
 		// Unauthorized
-		rec := sendReq(http.MethodGet, "/api/internal/session", nil, "bad-token", &http.Cookie{Name: "session", Value: token})
+		rec := sendReq(http.MethodGet, "/api/internal/session?token_hash="+tokenHash, nil, "bad-token", nil)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", rec.Code)
+		}
+
+		// Bad Request - missing token_hash
+		rec = sendReq(http.MethodGet, "/api/internal/session", nil, internalToken, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", rec.Code)
+		}
+
+		// Unauthorized - invalid token_hash
+		rec = sendReq(http.MethodGet, "/api/internal/session?token_hash=invalid", nil, internalToken, nil)
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("expected 401, got %d", rec.Code)
 		}
 
 		// Success
-		rec = sendReq(http.MethodGet, "/api/internal/session", nil, internalToken, &http.Cookie{Name: "session", Value: token})
+		rec = sendReq(http.MethodGet, "/api/internal/session?token_hash="+tokenHash, nil, internalToken, nil)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -207,6 +219,39 @@ func TestInternalAPI(t *testing.T) {
 		rec = sendReq(http.MethodPost, "/api/internal/audit-events", body, internalToken, nil)
 		if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 			t.Fatalf("expected 200/201, got %d body=%s", rec.Code, rec.Body.String())
+		}
+	})
+
+	// 6. GET /api/internal/audit-events
+	t.Run("GET /api/internal/audit-events", func(t *testing.T) {
+		// Unauthorized
+		rec := sendReq(http.MethodGet, "/api/internal/audit-events", nil, "bad-token", nil)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", rec.Code)
+		}
+
+		// Success
+		rec = sendReq(http.MethodGet, "/api/internal/audit-events?limit=5", nil, internalToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+		}
+		var events []map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &events); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+		if len(events) == 0 {
+			t.Error("expected at least 1 audit event, got 0")
+		} else {
+			found := false
+			for _, e := range events {
+				if e["actor_email"] == email && e["action"] == "test-action" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected to find audit event with action test-action and email %s", email)
+			}
 		}
 	})
 }

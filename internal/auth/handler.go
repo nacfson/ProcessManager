@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,6 +137,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/internal/projects", h.verifyInternalToken(http.HandlerFunc(h.InternalCreateProject)))
 	mux.Handle("GET /api/internal/users", h.verifyInternalToken(http.HandlerFunc(h.InternalListUsers)))
 	mux.Handle("POST /api/internal/audit-events", h.verifyInternalToken(http.HandlerFunc(h.InternalLogAudit)))
+	mux.Handle("GET /api/internal/audit-events", h.verifyInternalToken(http.HandlerFunc(h.InternalListAudit)))
 }
 
 // LoginForm renders the login page.
@@ -505,19 +507,13 @@ func (h *Handler) verifyInternalToken(next http.Handler) http.Handler {
 }
 
 func (h *Handler) InternalSession(w http.ResponseWriter, r *http.Request) {
-	var token string
-	if c, err := r.Cookie("session"); err == nil {
-		token = c.Value
-	} else if c, err := r.Cookie(SessionCookieName); err == nil {
-		token = c.Value
-	}
-
-	if token == "" {
-		writeAPIError(w, http.StatusUnauthorized, "missing session cookie")
+	tokenHash := r.URL.Query().Get("token_hash")
+	if tokenHash == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing token_hash parameter")
 		return
 	}
 
-	sess, err := h.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
+	sess, err := h.store.GetSessionByTokenHash(r.Context(), tokenHash)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -616,4 +612,41 @@ func (h *Handler) InternalLogAudit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeAPIJSON(w, http.StatusCreated, map[string]string{"status": "created"})
+}
+
+type internalAuditEventResponse struct {
+	ID           string    `json:"id"`
+	ActorEmail   string    `json:"actor_email"`
+	Action       string    `json:"action"`
+	ResourceType string    `json:"resource_type"`
+	ResourceID   string    `json:"resource_id"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+func (h *Handler) InternalListAudit(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if val, err := strconv.Atoi(limitStr); err == nil && val > 0 {
+			limit = val
+		}
+	}
+
+	events, err := h.store.ListAuditEvents(r.Context(), limit)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := make([]internalAuditEventResponse, 0, len(events))
+	for _, e := range events {
+		resp = append(resp, internalAuditEventResponse{
+			ID:           e.ID,
+			ActorEmail:   e.ActorEmail,
+			Action:       e.Action,
+			ResourceType: e.ResourceType,
+			ResourceID:   e.ResourceID,
+			CreatedAt:    e.CreatedAt,
+		})
+	}
+	writeAPIJSON(w, http.StatusOK, resp)
 }
