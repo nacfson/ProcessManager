@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 
 	"processmanager/internal/auth"
 	"processmanager/internal/db"
@@ -23,42 +21,12 @@ import (
 	"processmanager/internal/k8s/fake"
 )
 
-func parseSSLMode(dsn string) string {
-	lower := strings.ToLower(dsn)
-	i := strings.Index(lower, "sslmode=")
-	if i < 0 {
-		return ""
-	}
-	rest := dsn[i+len("sslmode="):]
-	j := strings.IndexAny(rest, "& ")
-	if j < 0 {
-		return strings.ToLower(rest)
-	}
-	return strings.ToLower(rest[:j])
-}
-
-func validateAuthDSN(dsn string) error {
-	if dsn == "" {
-		return errors.New("AUTH_DATABASE_URL is required")
-	}
-	mode := parseSSLMode(dsn)
-	if mode == "" {
-		return errors.New("AUTH_DATABASE_URL must specify sslmode")
-	}
-	if mode == "disable" {
-		return errors.New("AUTH_DATABASE_URL must use TLS; sslmode=disable is not allowed")
-	}
-	if mode != "require" && mode != "verify-full" {
-		return errors.New("AUTH_DATABASE_URL must use sslmode=require or sslmode=verify-full")
-	}
-	return nil
-}
-
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	namespace := flag.String("namespace", "nacfson-personal", "namespace to manage")
 	domain := flag.String("domain", "nacfson.cloud", "base domain for processes")
-	authDSN := flag.String("auth-dsn", os.Getenv("AUTH_DATABASE_URL"), "auth database DSN")
+	authServiceURL := flag.String("auth-service-url", "http://auth-service.nacfson-auth.svc.cluster.local:8080", "auth service URL")
+	authInternalToken := flag.String("auth-internal-token", os.Getenv("AUTH_INTERNAL_TOKEN"), "auth internal token")
 	sharedDSN := flag.String("shared-dsn", os.Getenv("SHARED_DATABASE_URL"), "shared app database DSN")
 	authHost := flag.String("auth-host", "auth.nacfson.cloud", "auth service host")
 	fakeK8s := flag.Bool("fake-k8s", false, "use an in-memory fake Kubernetes client")
@@ -92,20 +60,7 @@ func main() {
 		Tmpl:      tmpl,
 	}
 
-	if err := validateAuthDSN(*authDSN); err != nil {
-		log.Fatalf("failed to validate auth configuration: %v", err)
-	}
-
-	ctx := context.Background()
-	pool, err := db.NewPool(ctx, *authDSN)
-	if err != nil {
-		log.Fatalf("failed to connect to auth db: %v", err)
-	}
-	defer pool.Close()
-	store := auth.NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		log.Fatalf("failed to migrate auth db: %v", err)
-	}
+	store := auth.NewHTTPAuthStore(*authServiceURL, *authInternalToken)
 	deps.AuthStore = store
 	deps.AuthMW = auth.NewMiddleware(store, *authHost, *domain)
 
