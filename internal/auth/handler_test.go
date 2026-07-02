@@ -230,11 +230,13 @@ func TestRegistrationAndVerificationFlow(t *testing.T) {
 		t.Fatalf("parse templates: %v", err)
 	}
 
+	parsedAllowedRedirect, _ := url.Parse("https://customproject.com/callback")
 	handler := &Handler{
-		store:        store,
-		cookieDomain: "nacfson.cloud",
-		sessionTTL:   time.Hour,
-		tmpl:         tmpl,
+		store:            store,
+		cookieDomain:     "nacfson.cloud",
+		sessionTTL:      time.Hour,
+		tmpl:             tmpl,
+		allowedRedirects: []*url.URL{parsedAllowedRedirect},
 	}
 
 	// Clear DB
@@ -398,17 +400,37 @@ func TestRegistrationAndVerificationFlow(t *testing.T) {
 		t.Errorf("APILogin response body does not mention unverified email: %s", rec.Body.String())
 	}
 
-	// 6. Test Registration duplicate email error
+	// 6. Test Re-registration of unverified user (prevents deadlock)
 	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
 	handler.Register(rec, req)
 	if rec.Code != http.StatusFound {
-		t.Errorf("Register duplicate email status = %d, want 302", rec.Code)
+		t.Fatalf("Re-register unverified user status = %d, want 302", rec.Code)
 	}
 	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=email+already+registered") {
-		t.Errorf("Register redirect location does not complain about duplicate email: %q", loc)
+	if !strings.Contains(loc, "/verification-sent") {
+		t.Fatalf("Re-register redirect location does not point to verification-sent: %q", loc)
+	}
+
+	// Verify old token is deleted from DB
+	oldToken := token
+	oldEv, err := store.GetEmailVerification(ctx, oldToken)
+	if err != nil {
+		t.Fatalf("GetEmailVerification for old token: %v", err)
+	}
+	if oldEv != nil {
+		t.Errorf("old verification token was not deleted from DB after re-registration")
+	}
+
+	// Extract new token from redirect URL or DB
+	uUrl, err = url.Parse(loc)
+	if err != nil {
+		t.Fatalf("parse redirect URL: %v", err)
+	}
+	token = uUrl.Query().Get("token")
+	if token == "" {
+		t.Fatalf("missing token in redirect URL")
 	}
 
 	// 7. VerifyEmail handler
@@ -436,15 +458,15 @@ func TestRegistrationAndVerificationFlow(t *testing.T) {
 		t.Errorf("VerifyEmail invalid token location wrong: %q", loc)
 	}
 
-	// Test case: valid token
-	req = httptest.NewRequest(http.MethodGet, "/verify-email?token="+token+"&rd=/dashboard", nil)
+	// Test case: valid token with whitelisted rd
+	req = httptest.NewRequest(http.MethodGet, "/verify-email?token="+token+"&rd=https://customproject.com/callback", nil)
 	rec = httptest.NewRecorder()
 	handler.VerifyEmail(rec, req)
 	if rec.Code != http.StatusFound {
 		t.Errorf("VerifyEmail success status = %d, want 302", rec.Code)
 	}
 	loc = rec.Header().Get("Location")
-	expectedRedirect := "https://" + handler.cookieDomain + "/dashboard"
+	expectedRedirect := "https://customproject.com/callback"
 	if loc != expectedRedirect {
 		t.Errorf("VerifyEmail redirect to = %q, want %q", loc, expectedRedirect)
 	}
@@ -489,5 +511,76 @@ func TestRegistrationAndVerificationFlow(t *testing.T) {
 	handler.APILogin(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Errorf("APILogin after verification status = %d, want 200", rec.Code)
+	}
+
+	// 9. Test Registration duplicate email error (for verified user)
+	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	handler.Register(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Errorf("Register duplicate email status = %d, want 302", rec.Code)
+	}
+	loc = rec.Header().Get("Location")
+	if !strings.Contains(loc, "error=email+already+registered") {
+		t.Errorf("Register redirect location does not complain about duplicate email: %q", loc)
+	}
+}
+
+func TestLoginFormRedirectWhitelist(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect auth db: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("migrate auth db: %v", err)
+	}
+
+	tmpl, err := template.New("").ParseGlob("../../web/templates/*.html")
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+
+	parsedAllowed, _ := url.Parse("https://customproject.com/callback")
+	handler := &Handler{
+		store:            store,
+		cookieDomain:     "nacfson.cloud",
+		sessionTTL:      time.Hour,
+		tmpl:             tmpl,
+		allowedRedirects: []*url.URL{parsedAllowed},
+	}
+
+	// 1. Test LoginForm with whitelisted rd
+	req := httptest.NewRequest(http.MethodGet, "/login?rd=https://customproject.com/callback", nil)
+	rec := httptest.NewRecorder()
+	handler.LoginForm(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("LoginForm status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "https://customproject.com/callback") {
+		t.Errorf("LoginForm output missing whitelisted return URL")
+	}
+
+	// 2. Test LoginForm with non-whitelisted external rd (should fallback to default)
+	req = httptest.NewRequest(http.MethodGet, "/login?rd=https://evil.com/callback", nil)
+	rec = httptest.NewRecorder()
+	handler.LoginForm(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("LoginForm status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if strings.Contains(rec.Body.String(), "https://evil.com/callback") {
+		t.Errorf("LoginForm output contains rejected return URL")
+	}
+	if !strings.Contains(rec.Body.String(), "https://nacfson.cloud") {
+		t.Errorf("LoginForm output missing default return URL")
 	}
 }

@@ -169,6 +169,12 @@ func (s *Store) VerifyUser(ctx context.Context, userID string) error {
 	return nil
 }
 
+// DeleteUser removes a user by ID.
+func (s *Store) DeleteUser(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	return err
+}
+
 // CreateSession inserts a session.
 func (s *Store) CreateSession(ctx context.Context, userID, tokenHash string, lifetime time.Duration) (*Session, error) {
 	id := uuid.Must(uuid.NewRandom()).String()

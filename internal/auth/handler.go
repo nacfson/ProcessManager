@@ -290,8 +290,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing != nil {
-		h.redirectRegister(w, r, "email already registered")
-		return
+		if existing.IsVerified {
+			h.redirectRegister(w, r, "email already registered")
+			return
+		}
+		// Delete the unverified user to prevent deadlock.
+		err = h.store.DeleteUser(r.Context(), existing.ID)
+		if err != nil {
+			log.Printf("Register DeleteUser error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -433,7 +442,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	SetSessionCookie(w, sessToken, h.sessionTTL, h.cookieDomain)
 
 	returnTo := r.URL.Query().Get("rd")
-	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, nil)
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
 	if err != nil {
 		validatedReturnTo = "/"
 	}
