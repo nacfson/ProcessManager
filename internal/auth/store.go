@@ -23,6 +23,25 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // Migrate creates the auth schema if it does not exist.
 func (s *Store) Migrate(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, schema)
+	if err != nil {
+		return err
+	}
+
+	// Migration logic: add is_verified if not present
+	alterQuery := `
+		DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 
+				FROM information_schema.columns 
+				WHERE table_name='users' AND column_name='is_verified'
+			) THEN
+				ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT false;
+			END IF;
+		END
+		$$;
+	`
+	_, err = s.pool.Exec(ctx, alterQuery)
 	return err
 }
 
@@ -32,6 +51,7 @@ type User struct {
 	Email        string
 	PasswordHash string
 	IsAdmin      bool
+	IsVerified   bool
 	CreatedAt    time.Time
 }
 
@@ -46,14 +66,14 @@ func (s *Store) UserExists(ctx context.Context) (bool, error) {
 }
 
 // CreateUser inserts a new user.
-func (s *Store) CreateUser(ctx context.Context, email, passwordHash string, isAdmin bool) (*User, error) {
+func (s *Store) CreateUser(ctx context.Context, email, passwordHash string, isAdmin bool, isVerified bool) (*User, error) {
 	id := uuid.Must(uuid.NewRandom()).String()
 	var u User
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO users (id, email, password_hash, is_admin) VALUES ($1, $2, $3, $4)
-		 RETURNING id, email, password_hash, is_admin, created_at`,
-		id, email, passwordHash, isAdmin,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
+		`INSERT INTO users (id, email, password_hash, is_admin, is_verified) VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, email, password_hash, is_admin, is_verified, created_at`,
+		id, email, passwordHash, isAdmin, isVerified,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.IsVerified, &u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
@@ -64,9 +84,9 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash string, isAd
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, is_admin, created_at FROM users WHERE email = $1`,
+		`SELECT id, email, password_hash, is_admin, is_verified, created_at FROM users WHERE email = $1`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.IsVerified, &u.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
@@ -79,7 +99,7 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error)
 // ListUsers returns all users ordered by creation time.
 // It intentionally does not load password hashes.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, email, is_admin, created_at FROM users ORDER BY created_at`)
+	rows, err := s.pool.Query(ctx, `SELECT id, email, is_admin, is_verified, created_at FROM users ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
@@ -88,12 +108,66 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.IsAdmin, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.IsAdmin, &u.IsVerified, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
 	}
 	return users, rows.Err()
+}
+
+// EmailVerification represents a pending user email verification.
+type EmailVerification struct {
+	UserID    string
+	Token     string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+// CreateEmailVerification inserts a new email verification token.
+func (s *Store) CreateEmailVerification(ctx context.Context, userID, token string, expiresAt time.Time) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO email_verifications (user_id, token, expires_at) VALUES ($1, $2, $3)
+		 ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at`,
+		userID, token, expiresAt)
+	if err != nil {
+		return fmt.Errorf("create email verification: %w", err)
+	}
+	return nil
+}
+
+// GetEmailVerification fetches an email verification by token.
+func (s *Store) GetEmailVerification(ctx context.Context, token string) (*EmailVerification, error) {
+	var ev EmailVerification
+	err := s.pool.QueryRow(ctx,
+		`SELECT user_id, token, expires_at, created_at FROM email_verifications WHERE token = $1`,
+		token,
+	).Scan(&ev.UserID, &ev.Token, &ev.ExpiresAt, &ev.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get email verification: %w", err)
+	}
+	return &ev, nil
+}
+
+// DeleteEmailVerification removes an email verification token.
+func (s *Store) DeleteEmailVerification(ctx context.Context, token string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM email_verifications WHERE token = $1`, token)
+	if err != nil {
+		return fmt.Errorf("delete email verification: %w", err)
+	}
+	return nil
+}
+
+// VerifyUser marks a user as verified.
+func (s *Store) VerifyUser(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET is_verified = true WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("verify user: %w", err)
+	}
+	return nil
 }
 
 // CreateSession inserts a session.
@@ -296,6 +370,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
     is_admin BOOLEAN NOT NULL DEFAULT false,
+    is_verified BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -337,4 +412,11 @@ CREATE TABLE IF NOT EXISTS audit_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_events_created ON audit_events(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token TEXT PRIMARY KEY,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `

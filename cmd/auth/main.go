@@ -98,7 +98,7 @@ func bootstrapAdmin(ctx context.Context, store *auth.Store) error {
 	if err != nil {
 		return err
 	}
-	if _, err := store.CreateUser(ctx, email, string(hash), true); err != nil {
+	if _, err := store.CreateUser(ctx, email, string(hash), true, true); err != nil {
 		return err
 	}
 	log.Printf("bootstrapped admin user %s", email)

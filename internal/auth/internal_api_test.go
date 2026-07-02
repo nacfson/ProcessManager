@@ -41,7 +41,7 @@ func TestInternalAPI(t *testing.T) {
 		t.Fatalf("hash password: %v", err)
 	}
 
-	user, err := store.CreateUser(ctx, email, string(hash), false)
+	user, err := store.CreateUser(ctx, email, string(hash), false, true)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

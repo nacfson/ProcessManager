@@ -40,7 +40,7 @@ func TestAPIAuthSessionLifecycle(t *testing.T) {
 	}
 
 	email := strings.ToLower("api-test-" + strings.ReplaceAll(time.Now().UTC().Format(time.RFC3339Nano), ":", "-") + "@example.test")
-	user, err := store.CreateUser(ctx, email, string(hash), false)
+	user, err := store.CreateUser(ctx, email, string(hash), false, true)
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

@@ -72,7 +72,7 @@ func main() {
 		}
 
 		if existing == nil {
-			if _, err := store.CreateUser(ctx, a.Email, string(hash), true); err != nil {
+			if _, err := store.CreateUser(ctx, a.Email, string(hash), true, true); err != nil {
 				log.Fatalf("create admin %s: %v", a.Email, err)
 			}
 			log.Printf("created admin %s", a.Email)
