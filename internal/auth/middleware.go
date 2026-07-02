@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"net/url"
 )
@@ -49,7 +50,8 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 		}
 		sess, err := m.validator.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("RequireAuth GetSessionByTokenHash error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		if sess == nil {
