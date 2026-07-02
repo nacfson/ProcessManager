@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"os"
 	"strconv"
@@ -123,6 +126,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /login", h.Login)
 	mux.HandleFunc("POST /logout", h.Logout)
 	mux.HandleFunc("GET /verify", h.Verify)
+	mux.HandleFunc("GET /register", h.RegisterForm)
+	mux.HandleFunc("POST /register", h.Register)
+	mux.HandleFunc("GET /verification-sent", h.VerificationSent)
+	mux.HandleFunc("GET /verify-email", h.VerifyEmail)
 	mux.HandleFunc("OPTIONS /api/auth/session", h.APIOptions)
 	mux.HandleFunc("POST /api/auth/session", h.APILogin)
 	mux.HandleFunc("GET /api/auth/session", h.APISession)
@@ -187,6 +194,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		h.redirectLogin(w, r, "invalid credentials")
 		return
 	}
+	if !user.IsVerified {
+		h.redirectLogin(w, r, "email not verified")
+		return
+	}
 
 	token, hash, err := NewSessionToken()
 	if err != nil {
@@ -199,6 +210,201 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	SetSessionCookie(w, token, h.sessionTTL, h.cookieDomain)
+	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
+}
+
+// RegisterForm renders the registration page.
+func (h *Handler) RegisterForm(w http.ResponseWriter, r *http.Request) {
+	returnTo := r.URL.Query().Get("rd")
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.tmpl.ExecuteTemplate(w, "register.html", map[string]any{
+		"ReturnTo": returnTo,
+		"Error":    r.URL.Query().Get("error"),
+	})
+}
+
+// Register processes a user registration.
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		q := "?error=" + url.QueryEscape("invalid request")
+		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+	password := r.FormValue("password")
+	confirmPassword := r.FormValue("confirm_password")
+	returnTo := r.FormValue("return_to")
+	if returnTo == "" {
+		returnTo = r.URL.Query().Get("rd")
+	}
+	if returnTo == "" {
+		returnTo = "/"
+	}
+
+	if email == "" {
+		q := "?error=" + url.QueryEscape("email is required") + "&rd=" + url.QueryEscape(returnTo)
+		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		return
+	}
+	if password == "" {
+		q := "?error=" + url.QueryEscape("password is required") + "&rd=" + url.QueryEscape(returnTo)
+		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		return
+	}
+	if password != confirmPassword {
+		q := "?error=" + url.QueryEscape("passwords do not match") + "&rd=" + url.QueryEscape(returnTo)
+		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		return
+	}
+
+	existing, err := h.store.GetUserByEmail(r.Context(), email)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if existing != nil {
+		q := "?error=" + url.QueryEscape("email already registered") + "&rd=" + url.QueryEscape(returnTo)
+		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.store.CreateUser(r.Context(), email, string(hash), false, false)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	tokenBytes := make([]byte, 16)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	token := hex.EncodeToString(tokenBytes)
+
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+	err = h.store.CreateEmailVerification(r.Context(), user.ID, token, expiresAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	verificationLink := fmt.Sprintf("http://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
+
+	smtpHost := os.Getenv("SMTP_HOST")
+	if smtpHost != "" {
+		smtpPort := os.Getenv("SMTP_PORT")
+		if smtpPort == "" {
+			smtpPort = "25"
+		}
+		addr := smtpHost
+		if !strings.Contains(smtpHost, ":") {
+			addr = net.JoinHostPort(smtpHost, smtpPort)
+		}
+		smtpUser := os.Getenv("SMTP_USER")
+		var auth smtp.Auth
+		if smtpUser != "" {
+			smtpPass := os.Getenv("SMTP_PASS")
+			if smtpPass == "" {
+				smtpPass = os.Getenv("SMTP_PASSWORD")
+			}
+			auth = smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
+		}
+		from := os.Getenv("SMTP_FROM")
+		if from == "" {
+			from = "noreply@" + h.cookieDomain
+		}
+		subject := "Verify your email address"
+		body := fmt.Sprintf("Please verify your email address by clicking the following link:\n\n%s", verificationLink)
+		msg := []byte("To: " + email + "\r\n" +
+			"From: " + from + "\r\n" +
+			"Subject: " + subject + "\r\n" +
+			"\r\n" +
+			body + "\r\n")
+
+		if err := smtp.SendMail(addr, auth, from, []string{email}, msg); err != nil {
+			http.Error(w, fmt.Sprintf("failed to send verification email: %v", err), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		fmt.Println(verificationLink)
+	}
+
+	q := "?token=" + url.QueryEscape(token) + "&rd=" + url.QueryEscape(returnTo)
+	http.Redirect(w, r, "/verification-sent"+q, http.StatusFound)
+}
+
+// VerificationSent renders the verification sent page.
+func (h *Handler) VerificationSent(w http.ResponseWriter, r *http.Request) {
+	returnTo := r.URL.Query().Get("rd")
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	token := r.URL.Query().Get("token")
+
+	data := map[string]any{
+		"ReturnTo": returnTo,
+	}
+
+	if os.Getenv("SMTP_HOST") == "" {
+		data["VerificationLink"] = fmt.Sprintf("/verify-email?token=%s&rd=%s", url.QueryEscape(token), url.QueryEscape(returnTo))
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.tmpl.ExecuteTemplate(w, "verification_sent.html", data)
+}
+
+// VerifyEmail verifies the email token and logs the user in.
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Redirect(w, r, "/register?error="+url.QueryEscape("invalid or expired verification token"), http.StatusFound)
+		return
+	}
+
+	ev, err := h.store.GetEmailVerification(r.Context(), token)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if ev == nil || ev.ExpiresAt.Before(time.Now()) {
+		http.Redirect(w, r, "/register?error="+url.QueryEscape("invalid or expired verification token"), http.StatusFound)
+		return
+	}
+
+	err = h.store.VerifyUser(r.Context(), ev.UserID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sessToken, hash, err := NewSessionToken()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := h.store.CreateSession(r.Context(), ev.UserID, hash, h.sessionTTL); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_ = h.store.DeleteEmailVerification(r.Context(), token)
+
+	SetSessionCookie(w, sessToken, h.sessionTTL, h.cookieDomain)
+
+	returnTo := r.URL.Query().Get("rd")
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, nil)
+	if err != nil {
+		validatedReturnTo = "/"
+	}
 	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
 }
 
@@ -245,6 +451,10 @@ func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		h.recordFailedLogin(r, email)
 		writeAPIError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	if !user.IsVerified {
+		writeAPIError(w, http.StatusUnauthorized, "unverified email")
 		return
 	}
 
