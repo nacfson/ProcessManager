@@ -33,6 +33,12 @@ func TestInternalAPI(t *testing.T) {
 		t.Fatalf("migrate auth db: %v", err)
 	}
 
+	// TRUNCATE tables to be hermetic
+	_, err = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
+	if err != nil {
+		t.Fatalf("truncate tables: %v", err)
+	}
+
 	// Create test user and session
 	email := strings.ToLower("internal-api-test-" + strings.ReplaceAll(time.Now().UTC().Format(time.RFC3339Nano), ":", "-") + "@example.test")
 	password := "password123"
