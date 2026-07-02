@@ -127,8 +127,7 @@ type EmailVerification struct {
 // CreateEmailVerification inserts a new email verification token.
 func (s *Store) CreateEmailVerification(ctx context.Context, userID, token string, expiresAt time.Time) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO email_verifications (user_id, token, expires_at) VALUES ($1, $2, $3)
-		 ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at`,
+		`INSERT INTO email_verifications (user_id, token, expires_at) VALUES ($1, $2, $3)`,
 		userID, token, expiresAt)
 	if err != nil {
 		return fmt.Errorf("create email verification: %w", err)
@@ -419,4 +418,5 @@ CREATE TABLE IF NOT EXISTS email_verifications (
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
 `

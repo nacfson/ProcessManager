@@ -33,6 +33,12 @@ func TestAPIAuthSessionLifecycle(t *testing.T) {
 		t.Fatalf("migrate auth db: %v", err)
 	}
 
+	// TRUNCATE tables to be hermetic
+	_, err = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
+	if err != nil {
+		t.Fatalf("truncate tables: %v", err)
+	}
+
 	password := "correct horse battery staple"
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

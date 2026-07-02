@@ -28,7 +28,7 @@ func TestStore(t *testing.T) {
 	}
 
 	// TRUNCATE tables to be hermetic
-	_, err = pool.Exec(ctx, "TRUNCATE users, email_verifications CASCADE")
+	_, err = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
 	if err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}
@@ -139,6 +139,61 @@ func TestStore(t *testing.T) {
 		}
 		if evDeleted != nil {
 			t.Errorf("expected nil after deletion, got %+v", evDeleted)
+		}
+	})
+
+	t.Run("EmailVerification ON DELETE CASCADE", func(t *testing.T) {
+		u, err := store.CreateUser(ctx, "cascade-verify@example.com", "hash", false, false)
+		if err != nil {
+			t.Fatalf("create user: %v", err)
+		}
+
+		token := "cascade-token-123"
+		expiresAt := time.Now().Add(1 * time.Hour).Truncate(time.Microsecond)
+
+		err = store.CreateEmailVerification(ctx, u.ID, token, expiresAt)
+		if err != nil {
+			t.Fatalf("create email verification: %v", err)
+		}
+
+		// Delete the user
+		_, err = pool.Exec(ctx, "DELETE FROM users WHERE id = $1", u.ID)
+		if err != nil {
+			t.Fatalf("delete user: %v", err)
+		}
+
+		// Verify the verification token is gone
+		ev, err := store.GetEmailVerification(ctx, token)
+		if err != nil {
+			t.Fatalf("get email verification: %v", err)
+		}
+		if ev != nil {
+			t.Errorf("expected verification token to be deleted via CASCADE, but it still exists")
+		}
+	})
+
+	t.Run("EmailVerification duplicate token error", func(t *testing.T) {
+		u1, err := store.CreateUser(ctx, "dup1@example.com", "hash", false, false)
+		if err != nil {
+			t.Fatalf("create user 1: %v", err)
+		}
+		u2, err := store.CreateUser(ctx, "dup2@example.com", "hash", false, false)
+		if err != nil {
+			t.Fatalf("create user 2: %v", err)
+		}
+
+		token := "duplicate-token"
+		expiresAt := time.Now().Add(1 * time.Hour).Truncate(time.Microsecond)
+
+		err = store.CreateEmailVerification(ctx, u1.ID, token, expiresAt)
+		if err != nil {
+			t.Fatalf("create email verification: %v", err)
+		}
+
+		// Attempting to create another email verification with the same token should fail
+		err = store.CreateEmailVerification(ctx, u2.ID, token, expiresAt)
+		if err == nil {
+			t.Errorf("expected error when creating email verification with duplicate token, got nil")
 		}
 	})
 }
