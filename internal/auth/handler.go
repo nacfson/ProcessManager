@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"net/url"
 	"os"
@@ -174,6 +176,7 @@ func (h *Handler) LoginForm(w http.ResponseWriter, r *http.Request) {
 
 // Login authenticates a user and sets the session cookie.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
 	if err := r.ParseForm(); err != nil {
 		h.redirectLogin(w, r, "invalid request")
 		return
@@ -193,7 +196,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.store.GetUserByEmail(r.Context(), email)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Login GetUserByEmail error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if user == nil || user.PasswordHash == "" {
@@ -213,11 +217,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	token, hash, err := NewSessionToken()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Login NewSessionToken error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if _, err := h.store.CreateSession(r.Context(), user.ID, hash, h.sessionTTL); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Login CreateSession error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -240,6 +246,7 @@ func (h *Handler) RegisterForm(w http.ResponseWriter, r *http.Request) {
 
 // Register processes a user registration.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
 	if err := r.ParseForm(); err != nil {
 		q := "?error=" + url.QueryEscape("invalid request")
 		http.Redirect(w, r, "/register"+q, http.StatusFound)
@@ -257,47 +264,54 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if email == "" {
-		q := "?error=" + url.QueryEscape("email is required") + "&rd=" + url.QueryEscape(returnTo)
-		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		h.redirectRegister(w, r, "email is required")
 		return
 	}
+
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		h.redirectRegister(w, r, "invalid email address")
+		return
+	}
+
 	if password == "" {
-		q := "?error=" + url.QueryEscape("password is required") + "&rd=" + url.QueryEscape(returnTo)
-		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		h.redirectRegister(w, r, "password is required")
 		return
 	}
 	if password != confirmPassword {
-		q := "?error=" + url.QueryEscape("passwords do not match") + "&rd=" + url.QueryEscape(returnTo)
-		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		h.redirectRegister(w, r, "passwords do not match")
 		return
 	}
 
 	existing, err := h.store.GetUserByEmail(r.Context(), email)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Register GetUserByEmail error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if existing != nil {
-		q := "?error=" + url.QueryEscape("email already registered") + "&rd=" + url.QueryEscape(returnTo)
-		http.Redirect(w, r, "/register"+q, http.StatusFound)
+		h.redirectRegister(w, r, "email already registered")
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Register bcrypt GenerateFromPassword error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	user, err := h.store.CreateUser(r.Context(), email, string(hash), false, false)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Register CreateUser error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	tokenBytes := make([]byte, 16)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Register rand.Read error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	token := hex.EncodeToString(tokenBytes)
@@ -305,7 +319,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	expiresAt := time.Now().UTC().Add(24 * time.Hour)
 	err = h.store.CreateEmailVerification(r.Context(), user.ID, token, expiresAt)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Register CreateEmailVerification error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -342,10 +357,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			"\r\n" +
 			body + "\r\n")
 
-		if err := smtp.SendMail(addr, auth, from, []string{email}, msg); err != nil {
-			http.Error(w, fmt.Sprintf("failed to send verification email: %v", err), http.StatusInternalServerError)
-			return
-		}
+		go func() {
+			if err := smtp.SendMail(addr, auth, from, []string{email}, msg); err != nil {
+				log.Printf("failed to send verification email to %s: %v", email, err)
+			}
+		}()
 	} else {
 		fmt.Println(verificationLink)
 	}
@@ -384,7 +400,8 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	ev, err := h.store.GetEmailVerification(r.Context(), token)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("VerifyEmail GetEmailVerification error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if ev == nil || ev.ExpiresAt.Before(time.Now()) {
@@ -394,17 +411,20 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	err = h.store.VerifyUser(r.Context(), ev.UserID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("VerifyEmail VerifyUser error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	sessToken, hash, err := NewSessionToken()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("VerifyEmail NewSessionToken error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if _, err := h.store.CreateSession(r.Context(), ev.UserID, hash, h.sessionTTL); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("VerifyEmail CreateSession error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -435,6 +455,7 @@ func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 	if !h.allowAPIOrigin(w, r) {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
 	var req apiLoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid request")
@@ -452,7 +473,8 @@ func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.store.GetUserByEmail(r.Context(), email)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("APILogin GetUserByEmail error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	if user == nil || user.PasswordHash == "" {
@@ -472,12 +494,14 @@ func (h *Handler) APILogin(w http.ResponseWriter, r *http.Request) {
 
 	token, hash, err := NewSessionToken()
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("APILogin NewSessionToken error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	sess, err := h.store.CreateSession(r.Context(), user.ID, hash, h.sessionTTL)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("APILogin CreateSession error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	sess.Email = user.Email
@@ -528,7 +552,8 @@ func (h *Handler) APILogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.store.DeleteSession(r.Context(), HashSessionToken(token)); err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("APILogout DeleteSession error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -560,7 +585,8 @@ func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := h.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Verify GetSessionByTokenHash error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if sess == nil {
@@ -571,13 +597,15 @@ func (h *Handler) Verify(w http.ResponseWriter, r *http.Request) {
 	// If the project does not require auth, allow through. Otherwise check membership.
 	project, err := h.store.GetProjectByHost(r.Context(), host)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Verify GetProjectByHost error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	if project != nil && project.AuthEnabled && !sess.IsAdmin {
 		roles, err := h.store.GetProjectRoles(r.Context(), project.ID, sess.UserID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("Verify GetProjectRoles error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		if len(roles) == 0 {
@@ -608,7 +636,8 @@ func (h *Handler) apiSession(w http.ResponseWriter, r *http.Request) (*Session, 
 	}
 	sess, err := h.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("apiSession GetSessionByTokenHash error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return nil, false
 	}
 	if sess == nil {
@@ -668,6 +697,18 @@ func (h *Handler) redirectLogin(w http.ResponseWriter, r *http.Request, message 
 	q := "?error=" + url.QueryEscape(message)
 	q += "&rd=" + url.QueryEscape(validatedReturnTo)
 	http.Redirect(w, r, "/login"+q, http.StatusFound)
+}
+
+func (h *Handler) redirectRegister(w http.ResponseWriter, r *http.Request, message string) {
+	returnTo := r.FormValue("return_to")
+	if returnTo == "" {
+		returnTo = r.URL.Query().Get("rd")
+	}
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	q := "?error=" + url.QueryEscape(message) + "&rd=" + url.QueryEscape(returnTo)
+	http.Redirect(w, r, "/register"+q, http.StatusFound)
 }
 
 
@@ -737,7 +778,8 @@ func (h *Handler) InternalSession(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := h.store.GetSessionByTokenHash(r.Context(), tokenHash)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("InternalSession GetSessionByTokenHash error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	if sess == nil {
@@ -756,7 +798,8 @@ func (h *Handler) InternalSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) InternalListProjects(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.store.ListProjects(r.Context())
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("InternalListProjects ListProjects error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -785,7 +828,8 @@ func (h *Handler) InternalCreateProject(w http.ResponseWriter, r *http.Request) 
 
 	p, err := h.store.CreateProject(r.Context(), req.Name, req.Namespace, req.DomainHost, req.Type, req.DBRequired, req.AuthEnabled)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("InternalCreateProject CreateProject error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -804,7 +848,8 @@ func (h *Handler) InternalCreateProject(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) InternalListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.store.ListUsers(r.Context())
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("InternalListUsers ListUsers error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -829,7 +874,8 @@ func (h *Handler) InternalLogAudit(w http.ResponseWriter, r *http.Request) {
 
 	err := h.store.LogAuditEvent(r.Context(), req.ActorEmail, req.Action, req.ResourceType, req.ResourceID)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("InternalLogAudit LogAuditEvent error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -855,7 +901,8 @@ func (h *Handler) InternalListAudit(w http.ResponseWriter, r *http.Request) {
 
 	events, err := h.store.ListAuditEvents(r.Context(), limit)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("InternalListAudit ListAuditEvents error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 

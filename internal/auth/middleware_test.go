@@ -44,7 +44,7 @@ func TestMiddleware_RequireAuth(t *testing.T) {
 				return nil, errors.New("db error")
 			},
 			wantStatus: http.StatusInternalServerError,
-			wantBody:   "db error\n",
+			wantBody:   "Internal server error\n",
 		},
 		{
 			name:        "Session not found",
