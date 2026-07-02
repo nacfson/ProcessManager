@@ -263,22 +263,36 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		returnTo = "/"
 	}
 
+	if !h.loginAllowed(r, email) {
+		h.redirectRegister(w, r, "too many attempts")
+		return
+	}
+
 	if email == "" {
+		h.recordFailedLogin(r, email)
 		h.redirectRegister(w, r, "email is required")
 		return
 	}
 
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email {
+		h.recordFailedLogin(r, email)
 		h.redirectRegister(w, r, "invalid email address")
 		return
 	}
 
 	if password == "" {
+		h.recordFailedLogin(r, email)
 		h.redirectRegister(w, r, "password is required")
 		return
 	}
+	if len(password) < 8 {
+		h.recordFailedLogin(r, email)
+		h.redirectRegister(w, r, "password must be at least 8 characters")
+		return
+	}
 	if password != confirmPassword {
+		h.recordFailedLogin(r, email)
 		h.redirectRegister(w, r, "passwords do not match")
 		return
 	}
@@ -291,16 +305,93 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		if existing.IsVerified {
+			h.recordFailedLogin(r, email)
 			h.redirectRegister(w, r, "email already registered")
 			return
 		}
-		// Delete the unverified user to prevent deadlock.
-		err = h.store.DeleteUser(r.Context(), existing.ID)
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
-			log.Printf("Register DeleteUser error: %v", err)
+			log.Printf("Register bcrypt GenerateFromPassword error: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+
+		err = h.store.UpdateUserPassword(r.Context(), existing.ID, string(hash))
+		if err != nil {
+			log.Printf("Register UpdateUserPassword error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		err = h.store.DeleteEmailVerificationsByUserID(r.Context(), existing.ID)
+		if err != nil {
+			log.Printf("Register DeleteEmailVerificationsByUserID error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		tokenBytes := make([]byte, 16)
+		if _, err := rand.Read(tokenBytes); err != nil {
+			log.Printf("Register rand.Read error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		token := hex.EncodeToString(tokenBytes)
+
+		expiresAt := time.Now().UTC().Add(24 * time.Hour)
+		err = h.store.CreateEmailVerification(r.Context(), existing.ID, token, expiresAt)
+		if err != nil {
+			log.Printf("Register CreateEmailVerification error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		verificationLink := fmt.Sprintf("http://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
+
+		smtpHost := os.Getenv("SMTP_HOST")
+		if smtpHost != "" {
+			smtpPort := os.Getenv("SMTP_PORT")
+			if smtpPort == "" {
+				smtpPort = "25"
+			}
+			addr := smtpHost
+			if !strings.Contains(smtpHost, ":") {
+				addr = net.JoinHostPort(smtpHost, smtpPort)
+			}
+			smtpUser := os.Getenv("SMTP_USER")
+			var auth smtp.Auth
+			if smtpUser != "" {
+				smtpPass := os.Getenv("SMTP_PASS")
+				if smtpPass == "" {
+					smtpPass = os.Getenv("SMTP_PASSWORD")
+				}
+				auth = smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
+			}
+			from := os.Getenv("SMTP_FROM")
+			if from == "" {
+				from = "noreply@" + h.cookieDomain
+			}
+			subject := "Verify your email address"
+			body := fmt.Sprintf("Please verify your email address by clicking the following link:\n\n%s", verificationLink)
+			msg := []byte("To: " + email + "\r\n" +
+				"From: " + from + "\r\n" +
+				"Subject: " + subject + "\r\n" +
+				"\r\n" +
+				body + "\r\n")
+
+			go func() {
+				if err := smtp.SendMail(addr, auth, from, []string{email}, msg); err != nil {
+					log.Printf("failed to send verification email to %s: %v", email, err)
+				}
+			}()
+		} else {
+			fmt.Println(verificationLink)
+		}
+
+		q := "?token=" + url.QueryEscape(token) + "&rd=" + url.QueryEscape(returnTo)
+		http.Redirect(w, r, "/verification-sent"+q, http.StatusFound)
+		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

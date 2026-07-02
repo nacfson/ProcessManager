@@ -36,7 +36,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 				FROM information_schema.columns 
 				WHERE table_name='users' AND column_name='is_verified'
 			) THEN
-				ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT false;
+				ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT true;
 			END IF;
 		END
 		$$;
@@ -168,12 +168,24 @@ func (s *Store) VerifyUser(ctx context.Context, userID string) error {
 	}
 	return nil
 }
-
 // DeleteUser removes a user by ID.
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
 	return err
 }
+
+// UpdateUserPassword updates the user's password hash.
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET password_hash = $1 WHERE id = $2`, passwordHash, userID)
+	return err
+}
+
+// DeleteEmailVerificationsByUserID deletes all email verifications for a user.
+func (s *Store) DeleteEmailVerificationsByUserID(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM email_verifications WHERE user_id = $1`, userID)
+	return err
+}
+
 
 // CreateSession inserts a session.
 func (s *Store) CreateSession(ctx context.Context, userID, tokenHash string, lifetime time.Duration) (*Session, error) {
