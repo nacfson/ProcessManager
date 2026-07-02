@@ -3,7 +3,6 @@ package fake
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"processmanager/internal/k8s"
 	"processmanager/internal/models"
