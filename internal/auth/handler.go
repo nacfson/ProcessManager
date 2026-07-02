@@ -228,7 +228,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	SetSessionCookie(w, token, h.sessionTTL, h.cookieDomain)
-	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
+	http.Redirect(w, r, appendToken(validatedReturnTo, token), http.StatusFound)
 }
 
 // RegisterForm renders the registration page.
@@ -537,7 +537,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		validatedReturnTo = "/"
 	}
-	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
+	http.Redirect(w, r, appendToken(validatedReturnTo, sessToken), http.StatusFound)
 }
 
 // Logout clears the session.
@@ -1018,4 +1018,15 @@ func (h *Handler) InternalListAudit(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeAPIJSON(w, http.StatusOK, resp)
+}
+
+func appendToken(redirectURL, token string) string {
+	u, err := url.Parse(redirectURL)
+	if err != nil {
+		return redirectURL
+	}
+	q := u.Query()
+	q.Set("token", token)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
