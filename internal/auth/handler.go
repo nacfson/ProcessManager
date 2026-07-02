@@ -166,7 +166,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	password := r.FormValue("password")
 	returnTo := r.FormValue("return_to")
-	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain)
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, nil)
 	if err != nil {
 		h.redirectLogin(w, r, "invalid request")
 		return
@@ -208,7 +208,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		_ = h.store.DeleteSession(r.Context(), HashSessionToken(token))
 	}
 	ClearSessionCookie(w, h.cookieDomain)
-	validatedReturnTo, _ := validateReturnTo("", h.cookieDomain)
+	validatedReturnTo, _ := validateReturnTo("", h.cookieDomain, nil)
 	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
 }
 
@@ -438,9 +438,9 @@ func (h *Handler) redirectLogin(w http.ResponseWriter, r *http.Request, message 
 	if returnTo == "" {
 		returnTo = r.URL.Query().Get("rd")
 	}
-	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain)
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, nil)
 	if err != nil {
-		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain)
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, nil)
 	}
 
 	q := "?error=" + url.QueryEscape(message)

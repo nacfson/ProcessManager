@@ -6,7 +6,15 @@ import (
 	"strings"
 )
 
-func validateReturnTo(returnTo, cookieDomain string) (string, error) {
+func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []string) (string, error) {
+	for _, pattern := range allowedRedirects {
+		pattern = strings.ToLower(strings.TrimSpace(pattern))
+		lowerReturnTo := strings.ToLower(strings.TrimSpace(returnTo))
+		if lowerReturnTo == pattern || strings.HasPrefix(lowerReturnTo, pattern) {
+			return returnTo, nil
+		}
+	}
+
 	defaultURL := "https://" + cookieDomain
 	if returnTo == "" {
 		return defaultURL, nil

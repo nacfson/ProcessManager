@@ -4,6 +4,7 @@ import "testing"
 
 func TestValidateReturnTo(t *testing.T) {
 	cookieDomain := "nacfson.cloud"
+	allowedRedirects := []string{"http://localhost:8081", "https://customproject.com"}
 	tests := []struct {
 		name    string
 		input   string
@@ -19,10 +20,13 @@ func TestValidateReturnTo(t *testing.T) {
 		{"rejected suffix bypass", "https://evil.com.nacfson.cloud", "", true},
 		{"rejected nested subdomain", "https://foo.bar.nacfson.cloud", "", true},
 		{"rejected path traversal", "/../../etc/passwd", "", true},
+		{"allowed whitelisted localhost url", "http://localhost:8081", "http://localhost:8081", false},
+		{"allowed whitelisted external domain", "https://customproject.com/auth/callback", "https://customproject.com/auth/callback", false},
+		{"rejected localhost port mismatch", "http://localhost:8082", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := validateReturnTo(tt.input, cookieDomain)
+			got, err := validateReturnTo(tt.input, cookieDomain, allowedRedirects)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("validateReturnTo(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			}
