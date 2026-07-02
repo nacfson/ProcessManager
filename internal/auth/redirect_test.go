@@ -23,6 +23,8 @@ func TestValidateReturnTo(t *testing.T) {
 		{"allowed whitelisted localhost url", "http://localhost:8081", "http://localhost:8081", false},
 		{"allowed whitelisted external domain", "https://customproject.com/auth/callback", "https://customproject.com/auth/callback", false},
 		{"rejected localhost port mismatch", "http://localhost:8082", "", true},
+		{"rejected suffix bypass on whitelist", "https://customproject.com.evil.com", "", true},
+		{"rejected port bypass on whitelist", "http://localhost:80812", "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

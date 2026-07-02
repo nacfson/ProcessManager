@@ -10,8 +10,17 @@ func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []string) 
 	for _, pattern := range allowedRedirects {
 		pattern = strings.ToLower(strings.TrimSpace(pattern))
 		lowerReturnTo := strings.ToLower(strings.TrimSpace(returnTo))
-		if lowerReturnTo == pattern || strings.HasPrefix(lowerReturnTo, pattern) {
-			return returnTo, nil
+		
+		uReturn, err1 := url.Parse(lowerReturnTo)
+		uPattern, err2 := url.Parse(pattern)
+		if err1 == nil && err2 == nil {
+			if uReturn.Scheme == uPattern.Scheme && uReturn.Host == uPattern.Host {
+				rPath := strings.TrimSuffix(uReturn.Path, "/")
+				pPath := strings.TrimSuffix(uPattern.Path, "/")
+				if rPath == pPath || strings.HasPrefix(rPath, pPath+"/") {
+					return returnTo, nil
+				}
+			}
 		}
 	}
 
