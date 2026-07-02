@@ -25,6 +25,10 @@ func TestValidateReturnTo(t *testing.T) {
 		{"rejected localhost port mismatch", "http://localhost:8082", "", true},
 		{"rejected suffix bypass on whitelist", "https://customproject.com.evil.com", "", true},
 		{"rejected port bypass on whitelist", "http://localhost:80812", "", true},
+		{"rejected backslash relative bypass", "/auth\\..\\..\\etc\\passwd", "", true},
+		{"rejected path traversal whitelist bypass", "https://customproject.com/auth/callback/../../evil", "", true},
+		{"rejected backslash whitelist bypass", "https://customproject.com/auth/callback\\..\\..\\evil", "", true},
+		{"case preservation for query parameters", "https://customproject.com/auth/callback?code=AbCdEf", "https://customproject.com/auth/callback?code=AbCdEf", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

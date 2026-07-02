@@ -3,20 +3,47 @@ package auth
 import (
 	"fmt"
 	"net/url"
+	"path"
 	"strings"
 )
 
 func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []string) (string, error) {
+	normalizedURL := strings.ReplaceAll(strings.TrimSpace(returnTo), "\\", "/")
+
+	u, err := url.Parse(normalizedURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid redirect URL: %w", err)
+	}
+
+	for _, seg := range strings.Split(u.Path, "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("redirect must not contain .. segments")
+		}
+	}
+
 	for _, pattern := range allowedRedirects {
-		pattern = strings.ToLower(strings.TrimSpace(pattern))
-		lowerReturnTo := strings.ToLower(strings.TrimSpace(returnTo))
+		patternNormalized := strings.ReplaceAll(strings.TrimSpace(pattern), "\\", "/")
 		
-		uReturn, err1 := url.Parse(lowerReturnTo)
-		uPattern, err2 := url.Parse(pattern)
-		if err1 == nil && err2 == nil {
-			if uReturn.Scheme == uPattern.Scheme && uReturn.Host == uPattern.Host {
-				rPath := strings.TrimSuffix(uReturn.Path, "/")
-				pPath := strings.TrimSuffix(uPattern.Path, "/")
+		uReturn := u
+		uPattern, err2 := url.Parse(patternNormalized)
+		if err2 == nil {
+			if strings.ToLower(uReturn.Scheme) == strings.ToLower(uPattern.Scheme) && 
+			   strings.ToLower(uReturn.Host) == strings.ToLower(uPattern.Host) {
+				rPath := uReturn.Path
+				if rPath == "" {
+					rPath = "/"
+				}
+				rPath = path.Clean(rPath)
+
+				pPath := uPattern.Path
+				if pPath == "" {
+					pPath = "/"
+				}
+				pPath = path.Clean(pPath)
+				
+				rPath = strings.TrimSuffix(rPath, "/")
+				pPath = strings.TrimSuffix(pPath, "/")
+				
 				if rPath == pPath || strings.HasPrefix(rPath, pPath+"/") {
 					return returnTo, nil
 				}
@@ -29,20 +56,10 @@ func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []string) 
 		return defaultURL, nil
 	}
 
-	u, err := url.Parse(returnTo)
-	if err != nil {
-		return "", fmt.Errorf("invalid redirect URL: %w", err)
-	}
-
 	// Relative paths are allowed.
 	if u.Scheme == "" && u.Host == "" {
 		if !strings.HasPrefix(u.Path, "/") {
 			return "", fmt.Errorf("relative redirect must start with /")
-		}
-		for _, seg := range strings.Split(u.Path, "/") {
-			if seg == ".." {
-				return "", fmt.Errorf("relative redirect must not contain .. segments")
-			}
 		}
 		return defaultURL + u.Path, nil
 	}
