@@ -259,6 +259,12 @@
             </div>
             {{end}}
 
+            <!-- Client-side error container -->
+            <div id="client-error" style="color: var(--danger); background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.2); padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 1.25rem; font-size: 0.875rem; display: none; align-items: center; gap: 0.5rem;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <span id="client-error-message"></span>
+            </div>
+
             <!-- Register Form -->
             <form id="auth-form" method="POST" action="/register">
                 <input type="hidden" name="return_to" value="{{.ReturnTo}}">
@@ -306,5 +312,40 @@
             </div>
         </div>
     </div>
+    <script>
+        document.getElementById('auth-form').addEventListener('submit', function(event) {
+            var password = document.getElementById('password').value;
+            var confirmPassword = document.getElementById('confirm_password').value;
+            var errorDiv = document.getElementById('client-error');
+            var errorMessage = document.getElementById('client-error-message');
+
+            if (password !== confirmPassword) {
+                event.preventDefault();
+                errorMessage.textContent = 'Passwords do not match.';
+                errorDiv.style.display = 'flex';
+            } else {
+                errorDiv.style.display = 'none';
+            }
+        });
+        
+        // Clear error when password confirmation changes and matches
+        document.getElementById('confirm_password').addEventListener('input', function() {
+            var password = document.getElementById('password').value;
+            var confirmPassword = this.value;
+            var errorDiv = document.getElementById('client-error');
+            if (password === confirmPassword) {
+                errorDiv.style.display = 'none';
+            }
+        });
+        
+        document.getElementById('password').addEventListener('input', function() {
+            var password = this.value;
+            var confirmPassword = document.getElementById('confirm_password').value;
+            var errorDiv = document.getElementById('client-error');
+            if (password === confirmPassword || confirmPassword === '') {
+                errorDiv.style.display = 'none';
+            }
+        });
+    </script>
 </body>
 </html>

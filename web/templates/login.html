@@ -292,8 +292,9 @@
             </form>
 
             <!-- Footer Text -->
-            <div class="footer-text">
-                <span style="font-size: 0.875rem; color: var(--text-secondary);">Contact your administrator to request an account.</span>
+            <div class="footer-text" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
+                <span style="font-size: 0.875rem; color: var(--text-secondary);">Don't have an account? <a href="/register?rd={{.ReturnTo}}">Sign up</a></span>
+                <span style="font-size: 0.75rem; color: var(--text-secondary); opacity: 0.8;">Or contact your administrator to request an account.</span>
             </div>
         </div>
     </div>
