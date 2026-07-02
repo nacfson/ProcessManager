@@ -15,6 +15,7 @@ data:
     """
 
     import json
+    import os
     import re
     import urllib.parse
     import urllib.request
@@ -214,6 +215,59 @@ data:
         return {"senses": senses}
 
 
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash-lite")
+    DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+    DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+    def is_configured(val):
+        return val and not val.startswith("REPLACE_WITH_") and val != "local-dictionary-enricher"
+
+    def call_gemini(body: dict) -> dict:
+        if not is_configured(GEMINI_API_KEY):
+            raise ValueError("GEMINI_API_KEY not configured")
+        
+        url = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GEMINI_API_KEY}"
+        }
+        
+        req_body = body.copy()
+        req_body["model"] = GEMINI_MODEL
+        
+        req = urllib.request.Request(
+            url, 
+            data=json.dumps(req_body).encode("utf-8"), 
+            headers=headers,
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def call_deepseek(body: dict) -> dict:
+        if not is_configured(DEEPSEEK_API_KEY):
+            raise ValueError("DEEPSEEK_API_KEY not configured")
+            
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+        }
+        
+        req_body = body.copy()
+        req_body["model"] = DEEPSEEK_MODEL
+        
+        req = urllib.request.Request(
+            url, 
+            data=json.dumps(req_body).encode("utf-8"), 
+            headers=headers,
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/healthz":
@@ -229,6 +283,24 @@ data:
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length).decode("utf-8", "replace"))
+
+                # 1. Try Gemini
+                try:
+                    res = call_gemini(body)
+                    self.send_json(res)
+                    return
+                except Exception as e:
+                    pass
+
+                # 2. Try Deepseek
+                try:
+                    res = call_deepseek(body)
+                    self.send_json(res)
+                    return
+                except Exception as e:
+                    pass
+
+                # 3. Fallback to mock dictionary API
                 prompt = "\n".join(
                     message.get("content", "")
                     for message in body.get("messages", [])

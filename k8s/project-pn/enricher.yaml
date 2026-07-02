@@ -26,6 +26,27 @@ spec:
             - /app/dictionary_enricher.py
           ports:
             - containerPort: 8787
+          env:
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: GEMINI_API_KEY
+            - name: GEMINI_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: GEMINI_MODEL
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: DEEPSEEK_API_KEY
+            - name: DEEPSEEK_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: DEEPSEEK_MODEL
           volumeMounts:
             - name: script
               mountPath: /app
