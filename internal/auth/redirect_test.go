@@ -1,10 +1,18 @@
 package auth
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestValidateReturnTo(t *testing.T) {
 	cookieDomain := "nacfson.cloud"
-	allowedRedirects := []string{"http://localhost:8081", "https://customproject.com"}
+	allowedRedirectsStr := []string{"http://localhost:8081", "https://customproject.com"}
+	var allowedRedirects []*url.URL
+	for _, r := range allowedRedirectsStr {
+		u, _ := url.Parse(r)
+		allowedRedirects = append(allowedRedirects, u)
+	}
 	tests := []struct {
 		name    string
 		input   string

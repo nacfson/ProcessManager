@@ -41,6 +41,8 @@ spec:
               value: "168h"
             - name: AUTH_API_ALLOWED_ORIGINS
               value: "https://pn.nacfson.cloud"
+            - name: AUTH_ALLOWED_REDIRECTS
+              value: "http://localhost:8081"
             - name: AUTH_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:

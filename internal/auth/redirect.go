@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []string) (string, error) {
+func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []*url.URL) (string, error) {
 	normalizedURL := strings.ReplaceAll(strings.TrimSpace(returnTo), "\\", "/")
 
 	u, err := url.Parse(normalizedURL)
@@ -22,32 +22,27 @@ func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []string) 
 		}
 	}
 
-	for _, pattern := range allowedRedirects {
-		patternNormalized := strings.ReplaceAll(strings.TrimSpace(pattern), "\\", "/")
-		
+	for _, uPattern := range allowedRedirects {
 		uReturn := u
-		uPattern, err2 := url.Parse(patternNormalized)
-		if err2 == nil {
-			if strings.ToLower(uReturn.Scheme) == strings.ToLower(uPattern.Scheme) && 
-			   strings.ToLower(uReturn.Host) == strings.ToLower(uPattern.Host) {
-				rPath := uReturn.Path
-				if rPath == "" {
-					rPath = "/"
-				}
-				rPath = path.Clean(rPath)
+		if strings.ToLower(uReturn.Scheme) == strings.ToLower(uPattern.Scheme) && 
+		   strings.ToLower(uReturn.Host) == strings.ToLower(uPattern.Host) {
+			rPath := uReturn.Path
+			if rPath == "" {
+				rPath = "/"
+			}
+			rPath = path.Clean(rPath)
 
-				pPath := uPattern.Path
-				if pPath == "" {
-					pPath = "/"
-				}
-				pPath = path.Clean(pPath)
-				
-				rPath = strings.TrimSuffix(rPath, "/")
-				pPath = strings.TrimSuffix(pPath, "/")
-				
-				if rPath == pPath || strings.HasPrefix(rPath, pPath+"/") {
-					return returnTo, nil
-				}
+			pPath := uPattern.Path
+			if pPath == "" {
+				pPath = "/"
+			}
+			pPath = path.Clean(pPath)
+			
+			rPath = strings.TrimSuffix(rPath, "/")
+			pPath = strings.TrimSuffix(pPath, "/")
+			
+			if rPath == pPath || strings.HasPrefix(rPath, pPath+"/") {
+				return returnTo, nil
 			}
 		}
 	}

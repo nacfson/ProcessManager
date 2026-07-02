@@ -24,7 +24,7 @@ type Handler struct {
 	cookieDomain      string
 	sessionTTL        time.Duration
 	apiAllowedOrigins []string
-	allowedRedirects  []string
+	allowedRedirects  []*url.URL
 	tmpl              *template.Template
 	loginLimiter      *loginLimiter
 }
@@ -52,12 +52,25 @@ func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, log
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
+
+	var parsedRedirects []*url.URL
+	for _, r := range allowedRedirects {
+		u, err := url.Parse(strings.ReplaceAll(strings.TrimSpace(r), "\\", "/"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid allowed redirect URL %q: %w", r, err)
+		}
+		if u.Scheme == "" || u.Host == "" {
+			return nil, fmt.Errorf("allowed redirect URL %q must specify scheme and host", r)
+		}
+		parsedRedirects = append(parsedRedirects, u)
+	}
+
 	return &Handler{
 		store:             store,
 		cookieDomain:      cookieDomain,
 		sessionTTL:        sessionTTL,
 		apiAllowedOrigins: apiAllowedOrigins,
-		allowedRedirects:  allowedRedirects,
+		allowedRedirects:  parsedRedirects,
 		tmpl:              tmpl,
 		loginLimiter:      loginLimiter,
 	}, nil
