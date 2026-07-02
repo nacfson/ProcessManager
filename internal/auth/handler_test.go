@@ -491,3 +491,235 @@ func TestRegistrationAndVerificationFlow(t *testing.T) {
 		t.Errorf("APILogin after verification status = %d, want 200", rec.Code)
 	}
 }
+
+
+func TestVerifyEmailAllowedRedirects(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect auth db: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+	_ = store.Migrate(ctx)
+
+	// Clear DB
+	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
+
+	// Create an unverified user
+	user, err := store.CreateUser(ctx, "redirect-test@example.com", "hash", false, false)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Create email verification
+	token := "valid-token-for-redirect"
+	err = store.CreateEmailVerification(ctx, user.ID, token, time.Now().Add(1*time.Hour))
+	if err != nil {
+		t.Fatalf("create email verification: %v", err)
+	}
+
+	// Parse allowed redirect
+	uRedirect, err := url.Parse("https://external.example.com/callback")
+	if err != nil {
+		t.Fatalf("parse redirect URL: %v", err)
+	}
+
+	handler := &Handler{
+		store:            store,
+		cookieDomain:     "nacfson.cloud",
+		sessionTTL:       time.Hour,
+		allowedRedirects: []*url.URL{uRedirect},
+	}
+
+	// Request with a whitelisted redirect URL that is external
+	req := httptest.NewRequest(http.MethodGet, "/verify-email?token="+token+"&rd=https://external.example.com/callback", nil)
+	rec := httptest.NewRecorder()
+	handler.VerifyEmail(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Errorf("VerifyEmail status = %d, want 302", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if loc != "https://external.example.com/callback" {
+		t.Errorf("expected redirect to https://external.example.com/callback, got %q", loc)
+	}
+}
+
+func TestRegistrationRateLimiting(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect auth db: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+	_ = store.Migrate(ctx)
+
+	// Clear DB
+	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
+
+	// Set up loginLimiter with a very low limit (e.g. 1 max attempt)
+	limiter := NewLoginLimiter(1, 1*time.Minute)
+
+	handler := &Handler{
+		store:        store,
+		cookieDomain: "nacfson.cloud",
+		sessionTTL:   time.Hour,
+		loginLimiter: limiter,
+	}
+
+	email := "limiter-test@example.com"
+
+	// First registration attempt - fails validation (password too short)
+	form := url.Values{}
+	form.Set("email", email)
+	form.Set("password", "short")
+	form.Set("confirm_password", "short")
+
+	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.Register(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect for validation error, got %d", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "error=password+must+be+at+least+8+characters") {
+		t.Errorf("expected password validation error, got %q", loc)
+	}
+
+	// Second registration attempt - should be rate limited immediately
+	form.Set("password", "longenoughpassword")
+	form.Set("confirm_password", "longenoughpassword")
+	req2 := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec2 := httptest.NewRecorder()
+	handler.Register(rec2, req2)
+
+	if rec2.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect for rate limit, got %d", rec2.Code)
+	}
+	loc2 := rec2.Header().Get("Location")
+	if !strings.Contains(loc2, "error=too+many+attempts") {
+		t.Errorf("expected rate limited error, got %q", loc2)
+	}
+}
+
+func TestRegisterUnverifiedEmailRecreatesVerification(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect auth db: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+	_ = store.Migrate(ctx)
+
+	// Clear DB
+	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
+
+	handler := &Handler{
+		store:        store,
+		cookieDomain: "nacfson.cloud",
+		sessionTTL:   time.Hour,
+	}
+
+	email := "unverified-recreate@example.com"
+
+	// 1. Initial register
+	form := url.Values{}
+	form.Set("email", email)
+	form.Set("password", "firstpassword")
+	form.Set("confirm_password", "firstpassword")
+
+	req1 := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
+	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec1 := httptest.NewRecorder()
+	handler.Register(rec1, req1)
+
+	if rec1.Code != http.StatusFound {
+		t.Fatalf("initial Register status = %d, want 302", rec1.Code)
+	}
+	loc1 := rec1.Header().Get("Location")
+	uUrl1, _ := url.Parse(loc1)
+	token1 := uUrl1.Query().Get("token")
+	if token1 == "" {
+		t.Fatalf("expected verification token")
+	}
+
+	// Verify token is in DB
+	ev1, err := store.GetEmailVerification(ctx, token1)
+	if err != nil || ev1 == nil {
+		t.Fatalf("expected verification to exist in DB")
+	}
+
+	// 2. Register again with same email but new password
+	form2 := url.Values{}
+	form2.Set("email", email)
+	form2.Set("password", "secondpassword")
+	form2.Set("confirm_password", "secondpassword")
+
+	req2 := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form2.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec2 := httptest.NewRecorder()
+	handler.Register(rec2, req2)
+
+	if rec2.Code != http.StatusFound {
+		t.Fatalf("second Register status = %d, want 302", rec2.Code)
+	}
+	loc2 := rec2.Header().Get("Location")
+	uUrl2, _ := url.Parse(loc2)
+	token2 := uUrl2.Query().Get("token")
+	if token2 == "" {
+		t.Fatalf("expected new verification token")
+	}
+
+	if token1 == token2 {
+		t.Errorf("expected different verification token, got same: %s", token1)
+	}
+
+	// Verify old token is deleted
+	ev1Check, err := store.GetEmailVerification(ctx, token1)
+	if err != nil {
+		t.Fatalf("GetEmailVerification error: %v", err)
+	}
+	if ev1Check != nil {
+		t.Errorf("expected old verification token to be deleted")
+	}
+
+	// Verify new token is in DB
+	ev2, err := store.GetEmailVerification(ctx, token2)
+	if err != nil || ev2 == nil {
+		t.Fatalf("expected new verification token to exist in DB")
+	}
+
+	// Verify password hash is updated and works with second password
+	user, err := store.GetUserByEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte("secondpassword"))
+	if err != nil {
+		t.Errorf("password was not updated to secondpassword: %v", err)
+	}
+}

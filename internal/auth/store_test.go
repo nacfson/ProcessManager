@@ -196,4 +196,54 @@ func TestStore(t *testing.T) {
 			t.Errorf("expected error when creating email verification with duplicate token, got nil")
 		}
 	})
+
+	t.Run("UpdateUserPassword and DeleteEmailVerificationsByUserID", func(t *testing.T) {
+		u, err := store.CreateUser(ctx, "unverified-updates@example.com", "hash1", false, false)
+		if err != nil {
+			t.Fatalf("create user: %v", err)
+		}
+
+		err = store.CreateEmailVerification(ctx, u.ID, "tok1", time.Now().Add(1*time.Hour))
+		if err != nil {
+			t.Fatalf("create email verification 1: %v", err)
+		}
+		err = store.CreateEmailVerification(ctx, u.ID, "tok2", time.Now().Add(1*time.Hour))
+		if err != nil {
+			t.Fatalf("create email verification 2: %v", err)
+		}
+
+		err = store.UpdateUserPassword(ctx, u.ID, "hash2")
+		if err != nil {
+			t.Fatalf("update password: %v", err)
+		}
+
+		fetched, err := store.GetUserByEmail(ctx, "unverified-updates@example.com")
+		if err != nil {
+			t.Fatalf("get user: %v", err)
+		}
+		if fetched.PasswordHash != "hash2" {
+			t.Errorf("expected password_hash 'hash2', got %q", fetched.PasswordHash)
+		}
+
+		err = store.DeleteEmailVerificationsByUserID(ctx, u.ID)
+		if err != nil {
+			t.Fatalf("delete verifications: %v", err)
+		}
+
+		ev1, err := store.GetEmailVerification(ctx, "tok1")
+		if err != nil {
+			t.Fatalf("get verification 1: %v", err)
+		}
+		if ev1 != nil {
+			t.Errorf("expected verification tok1 to be deleted, got %+v", ev1)
+		}
+
+		ev2, err := store.GetEmailVerification(ctx, "tok2")
+		if err != nil {
+			t.Fatalf("get verification 2: %v", err)
+		}
+		if ev2 != nil {
+			t.Errorf("expected verification tok2 to be deleted, got %+v", ev2)
+		}
+	})
 }
