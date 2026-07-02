@@ -466,6 +466,40 @@ func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([
 	return warnings, nil
 }
 
+// FilterEventsForProcess filters a slice of events for a specific process name,
+// avoiding false positives from processes sharing a prefix (e.g., "app" and "app-backend").
+func FilterEventsForProcess(events []EventInfo, name string, allProcessNames []string) []EventInfo {
+	var filtered []EventInfo
+	for _, e := range events {
+		parts := strings.SplitN(e.InvolvedObject, "/", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		objName := parts[1]
+		if objName == name {
+			filtered = append(filtered, e)
+			continue
+		}
+		if strings.HasPrefix(objName, name+"-") {
+			// Check if there is another process with a longer name that also prefixes objName.
+			isMoreSpecific := false
+			for _, other := range allProcessNames {
+				if other == name {
+					continue
+				}
+				if (objName == other || strings.HasPrefix(objName, other+"-")) && len(other) > len(name) {
+					isMoreSpecific = true
+					break
+				}
+			}
+			if !isMoreSpecific {
+				filtered = append(filtered, e)
+			}
+		}
+	}
+	return filtered
+}
+
 // GetProcessDetail returns aggregated detail for a single process.
 func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (*ProcessDetail, error) {
 	proc, err := c.GetProcess(ctx, namespace, name)
@@ -483,17 +517,16 @@ func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (
 		return nil, err
 	}
 
-	var events []EventInfo
-	for _, e := range allEvents {
-		parts := strings.SplitN(e.InvolvedObject, "/", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		objName := parts[1]
-		if objName == name || strings.HasPrefix(objName, name+"-") {
-			events = append(events, e)
-		}
+	processes, err := c.ListProcesses(ctx, namespace)
+	if err != nil {
+		return nil, err
 	}
+	allNames := make([]string, len(processes))
+	for i, p := range processes {
+		allNames[i] = p.Name
+	}
+
+	events := FilterEventsForProcess(allEvents, name, allNames)
 
 	return &ProcessDetail{
 		Process: *proc,

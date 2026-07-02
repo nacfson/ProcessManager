@@ -254,17 +254,16 @@ func (h *Handler) DetailEventsFragment(w http.ResponseWriter, r *http.Request) {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	var events []k8s.EventInfo
-	for _, e := range allEvents {
-		parts := strings.SplitN(e.InvolvedObject, "/", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		objName := parts[1]
-		if objName == name || strings.HasPrefix(objName, name+"-") {
-			events = append(events, e)
-		}
+	processes, err := h.deps.Client.ListProcesses(r.Context(), h.deps.Namespace)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusInternalServerError)
+		return
 	}
+	allNames := make([]string, len(processes))
+	for i, p := range processes {
+		allNames[i] = p.Name
+	}
+	events := k8s.FilterEventsForProcess(allEvents, name, allNames)
 	handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/detail-events-fragment", map[string]any{
 		"Detail": map[string]any{
 			"Events": events,

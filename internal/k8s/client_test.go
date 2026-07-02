@@ -236,3 +236,61 @@ func TestGetProcessDetail(t *testing.T) {
 		t.Errorf("expected 1 event, got %d", len(detail.Events))
 	}
 }
+
+func TestFilterEventsForProcessPrefixCollision(t *testing.T) {
+	events := []EventInfo{
+		{
+			InvolvedObject: "Pod/app-pod-123",
+			Reason:         "Failed",
+			Message:        "app error",
+		},
+		{
+			InvolvedObject: "Pod/app-backend-pod-456",
+			Reason:         "Failed",
+			Message:        "app-backend error",
+		},
+		{
+			InvolvedObject: "Pod/app-backend",
+			Reason:         "Failed",
+			Message:        "app-backend deployment error",
+		},
+		{
+			InvolvedObject: "Pod/app",
+			Reason:         "Failed",
+			Message:        "app deployment error",
+		},
+		{
+			InvolvedObject: "Pod/app-frontend-pod-789",
+			Reason:         "Failed",
+			Message:        "app-frontend error",
+		},
+	}
+
+	allProcessNames := []string{"app", "app-backend"}
+
+	// When filtering for "app", we expect to get events for "app", "app-pod-123", and "app-frontend-pod-789"
+	// but NOT "app-backend" or "app-backend-pod-456".
+	filtered := FilterEventsForProcess(events, "app", allProcessNames)
+
+	if len(filtered) != 3 {
+		t.Fatalf("expected 3 filtered events for 'app', got %d: %+v", len(filtered), filtered)
+	}
+
+	// Verify that none of the filtered events belong to app-backend
+	for _, e := range filtered {
+		if e.Message == "app-backend error" || e.Message == "app-backend deployment error" {
+			t.Errorf("unexpected event leaked into 'app' results: %+v", e)
+		}
+	}
+
+	// When filtering for "app-backend", we expect to get events for "app-backend" and "app-backend-pod-456".
+	filteredBackend := FilterEventsForProcess(events, "app-backend", allProcessNames)
+	if len(filteredBackend) != 2 {
+		t.Fatalf("expected 2 filtered events for 'app-backend', got %d: %+v", len(filteredBackend), filteredBackend)
+	}
+	for _, e := range filteredBackend {
+		if e.Message != "app-backend error" && e.Message != "app-backend deployment error" {
+			t.Errorf("unexpected event in 'app-backend' results: %+v", e)
+		}
+	}
+}

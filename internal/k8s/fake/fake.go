@@ -114,18 +114,14 @@ func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (
 	pods, _ := c.ListPods(ctx, namespace, name)
 	allEvents, _ := c.ListEvents(ctx, namespace, 0)
 
-	// Filter events related to this process.
-	var events []k8s.EventInfo
-	for _, e := range allEvents {
-		parts := strings.SplitN(e.InvolvedObject, "/", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		objName := parts[1]
-		if objName == name || strings.HasPrefix(objName, name+"-") {
-			events = append(events, e)
-		}
+	processes, _ := c.ListProcesses(ctx, namespace)
+	allNames := make([]string, len(processes))
+	for i, p := range processes {
+		allNames[i] = p.Name
 	}
+
+	events := k8s.FilterEventsForProcess(allEvents, name, allNames)
+
 	return &k8s.ProcessDetail{
 		Process: *proc,
 		Pods:    pods,
