@@ -15,7 +15,8 @@ func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []string) 
 		return "", fmt.Errorf("invalid redirect URL: %w", err)
 	}
 
-	for _, seg := range strings.Split(u.Path, "/") {
+	cleanPath := strings.ReplaceAll(u.Path, "\\", "/")
+	for _, seg := range strings.Split(cleanPath, "/") {
 		if seg == ".." {
 			return "", fmt.Errorf("redirect must not contain .. segments")
 		}

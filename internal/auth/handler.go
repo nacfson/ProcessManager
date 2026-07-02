@@ -21,6 +21,7 @@ type Handler struct {
 	cookieDomain      string
 	sessionTTL        time.Duration
 	apiAllowedOrigins []string
+	allowedRedirects  []string
 	tmpl              *template.Template
 	loginLimiter      *loginLimiter
 }
@@ -43,20 +44,17 @@ type apiUserResponse struct {
 }
 
 // NewHandler creates an auth handler.
-func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, loginLimiter *loginLimiter, apiAllowedOrigins ...[]string) (*Handler, error) {
+func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, loginLimiter *loginLimiter, apiAllowedOrigins []string, allowedRedirects []string) (*Handler, error) {
 	tmpl, err := template.New("").ParseGlob("web/templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
-	}
-	var allowedOrigins []string
-	if len(apiAllowedOrigins) > 0 {
-		allowedOrigins = apiAllowedOrigins[0]
 	}
 	return &Handler{
 		store:             store,
 		cookieDomain:      cookieDomain,
 		sessionTTL:        sessionTTL,
-		apiAllowedOrigins: allowedOrigins,
+		apiAllowedOrigins: apiAllowedOrigins,
+		allowedRedirects:  allowedRedirects,
 		tmpl:              tmpl,
 		loginLimiter:      loginLimiter,
 	}, nil
@@ -143,12 +141,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 // LoginForm renders the login page.
 func (h *Handler) LoginForm(w http.ResponseWriter, r *http.Request) {
 	returnTo := r.URL.Query().Get("rd")
-	if returnTo == "" {
-		returnTo = "/"
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
+	if err != nil {
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.tmpl.ExecuteTemplate(w, "login.html", map[string]any{
-		"ReturnTo": returnTo,
+		"ReturnTo": validatedReturnTo,
 		"Error":    r.URL.Query().Get("error"),
 	})
 }
@@ -166,7 +165,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	password := r.FormValue("password")
 	returnTo := r.FormValue("return_to")
-	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, nil)
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
 	if err != nil {
 		h.redirectLogin(w, r, "invalid request")
 		return
@@ -208,7 +207,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		_ = h.store.DeleteSession(r.Context(), HashSessionToken(token))
 	}
 	ClearSessionCookie(w, h.cookieDomain)
-	validatedReturnTo, _ := validateReturnTo("", h.cookieDomain, nil)
+	validatedReturnTo, _ := validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
 }
 
@@ -438,9 +437,9 @@ func (h *Handler) redirectLogin(w http.ResponseWriter, r *http.Request, message 
 	if returnTo == "" {
 		returnTo = r.URL.Query().Get("rd")
 	}
-	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, nil)
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
 	if err != nil {
-		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, nil)
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	}
 
 	q := "?error=" + url.QueryEscape(message)

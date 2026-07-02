@@ -28,6 +28,8 @@ func TestValidateReturnTo(t *testing.T) {
 		{"rejected backslash relative bypass", "/auth\\..\\..\\etc\\passwd", "", true},
 		{"rejected path traversal whitelist bypass", "https://customproject.com/auth/callback/../../evil", "", true},
 		{"rejected backslash whitelist bypass", "https://customproject.com/auth/callback\\..\\..\\evil", "", true},
+		{"rejected URL-encoded backslash bypass", "https://customproject.com/auth/callback/..%5c..%5cevil", "", true},
+		{"rejected URL-encoded backslash bypass case-insensitive", "https://customproject.com/auth/callback/..%5C..%5Cevil", "", true},
 		{"case preservation for query parameters", "https://customproject.com/auth/callback?code=AbCdEf", "https://customproject.com/auth/callback?code=AbCdEf", false},
 	}
 	for _, tt := range tests {

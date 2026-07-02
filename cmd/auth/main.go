@@ -20,6 +20,7 @@ func main() {
 	cookieDomain := flag.String("cookie-domain", os.Getenv("COOKIE_DOMAIN"), "session cookie domain")
 	sessionTTL := flag.Duration("session-ttl", 7*24*time.Hour, "session lifetime")
 	apiAllowedOrigins := flag.String("api-allowed-origins", os.Getenv("AUTH_API_ALLOWED_ORIGINS"), "comma-separated origins allowed to call the JSON auth API")
+	allowedRedirects := flag.String("allowed-redirects", os.Getenv("AUTH_ALLOWED_REDIRECTS"), "comma-separated URLs allowed for redirect after login/logout")
 	flag.Parse()
 
 	if *dsn == "" {
@@ -47,7 +48,7 @@ func main() {
 
 	limiter := auth.NewLoginLimiter(5, time.Minute)
 	defer limiter.Stop()
-	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, limiter, splitAndTrim(*apiAllowedOrigins))
+	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, limiter, splitAndTrim(*apiAllowedOrigins), splitAndTrim(*allowedRedirects))
 	if err != nil {
 		log.Fatalf("failed to create auth handler: %v", err)
 	}
