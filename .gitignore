@@ -1,0 +1,6 @@
+# Compiled binaries
+auth
+tmp/
+
+# OS files
+.DS_Store
