@@ -1,0 +1,175 @@
+<h2>Process row: scale + status</h2>
+<p class="subtitle">Which status display feels most intuitive for the process list?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content" style="width:100%">
+      <h3>Compact text badges</h3>
+      <p>Keep the row small with plain text status badges next to the scale control.</p>
+      <div class="mockup" style="margin-top:1rem">
+        <div class="mockup-header">Process list row</div>
+        <div class="mockup-body">
+          <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+            <thead>
+              <tr style="color:#94a3b8;border-bottom:1px solid #334155">
+                <th style="text-align:left;padding:0.5rem">Name</th>
+                <th style="text-align:left;padding:0.5rem">Image</th>
+                <th style="text-align:left;padding:0.5rem">Scale</th>
+                <th style="text-align:left;padding:0.5rem">Status</th>
+                <th style="text-align:left;padding:0.5rem">URL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid #334155">
+                <td style="padding:0.5rem">portfolio</td>
+                <td style="padding:0.5rem">ghcr.io/nacfson/portfolioweb:latest</td>
+                <td style="padding:0.5rem">
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">-</button>
+                  <span style="margin:0 0.5rem">1</span>
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">+</button>
+                </td>
+                <td style="padding:0.5rem">
+                  <span style="color:#4ade80">pods 1/1</span>
+                  <span style="color:#38bdf8;margin-left:0.5rem">svc 1</span>
+                  <span style="color:#a78bfa;margin-left:0.5rem">tls ✓</span>
+                </td>
+                <td style="padding:0.5rem"><a href="#">portfolio.nacfson.cloud</a></td>
+              </tr>
+              <tr>
+                <td style="padding:0.5rem">pn</td>
+                <td style="padding:0.5rem">ghcr.io/nacfson/pn:latest</td>
+                <td style="padding:0.5rem">
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">-</button>
+                  <span style="margin:0 0.5rem">2</span>
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">+</button>
+                </td>
+                <td style="padding:0.5rem">
+                  <span style="color:#4ade80">pods 2/2</span>
+                  <span style="color:#f87171;margin-left:0.5rem">svc 0</span>
+                  <span style="color:#facc15;margin-left:0.5rem">tls …</span>
+                </td>
+                <td style="padding:0.5rem"><a href="#">pn.nacfson.cloud</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content" style="width:100%">
+      <h3>Icon health strip</h3>
+      <p>Use compact icon badges for deployment, service, and ingress health.</p>
+      <div class="mockup" style="margin-top:1rem">
+        <div class="mockup-header">Process list row</div>
+        <div class="mockup-body">
+          <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+            <thead>
+              <tr style="color:#94a3b8;border-bottom:1px solid #334155">
+                <th style="text-align:left;padding:0.5rem">Name</th>
+                <th style="text-align:left;padding:0.5rem">Image</th>
+                <th style="text-align:left;padding:0.5rem">Scale</th>
+                <th style="text-align:left;padding:0.5rem">Health</th>
+                <th style="text-align:left;padding:0.5rem">URL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid #334155">
+                <td style="padding:0.5rem">portfolio</td>
+                <td style="padding:0.5rem">ghcr.io/nacfson/portfolioweb:latest</td>
+                <td style="padding:0.5rem">
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">-</button>
+                  <span style="margin:0 0.5rem">1</span>
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">+</button>
+                </td>
+                <td style="padding:0.5rem">
+                  <span title="pods 1/1" style="background:#14532d;color:#4ade80;padding:0.125rem 0.375rem;border-radius:0.25rem">🟢</span>
+                  <span title="service endpoints 1" style="background:#14532d;color:#4ade80;padding:0.125rem 0.375rem;border-radius:0.25rem;margin-left:0.25rem">⇄</span>
+                  <span title="tls ready" style="background:#14532d;color:#4ade80;padding:0.125rem 0.375rem;border-radius:0.25rem;margin-left:0.25rem">🔒</span>
+                </td>
+                <td style="padding:0.5rem"><a href="#">portfolio.nacfson.cloud</a></td>
+              </tr>
+              <tr>
+                <td style="padding:0.5rem">pn</td>
+                <td style="padding:0.5rem">ghcr.io/nacfson/pn:latest</td>
+                <td style="padding:0.5rem">
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">-</button>
+                  <span style="margin:0 0.5rem">2</span>
+                  <button class="mock-button" style="padding:0.25rem 0.5rem">+</button>
+                </td>
+                <td style="padding:0.5rem">
+                  <span title="pods 2/2" style="background:#14532d;color:#4ade80;padding:0.125rem 0.375rem;border-radius:0.25rem">🟢</span>
+                  <span title="service endpoints 0" style="background:#450a0a;color:#f87171;padding:0.125rem 0.375rem;border-radius:0.25rem;margin-left:0.25rem">⇄</span>
+                  <span title="tls pending" style="background:#422006;color:#facc15;padding:0.125rem 0.375rem;border-radius:0.25rem;margin-left:0.25rem">🔒</span>
+                </td>
+                <td style="padding:0.5rem"><a href="#">pn.nacfson.cloud</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content" style="width:100%">
+      <h3>Combined status + scale (Recommended)</h3>
+      <p>Text labels for precise numbers, icon color for quick scanning, and inline scale stepper.</p>
+      <div class="mockup" style="margin-top:1rem">
+        <div class="mockup-header">Process list row</div>
+        <div class="mockup-body">
+          <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+            <thead>
+              <tr style="color:#94a3b8;border-bottom:1px solid #334155">
+                <th style="text-align:left;padding:0.5rem">Name</th>
+                <th style="text-align:left;padding:0.5rem">Image</th>
+                <th style="text-align:left;padding:0.5rem">Scale & Status</th>
+                <th style="text-align:left;padding:0.5rem">URL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid #334155">
+                <td style="padding:0.5rem">portfolio</td>
+                <td style="padding:0.5rem">ghcr.io/nacfson/portfolioweb:latest</td>
+                <td style="padding:0.5rem">
+                  <div style="display:flex;align-items:center;gap:0.75rem">
+                    <span>
+                      <button class="mock-button" style="padding:0.25rem 0.5rem">-</button>
+                      <span style="margin:0 0.5rem">1</span>
+                      <button class="mock-button" style="padding:0.25rem 0.5rem">+</button>
+                    </span>
+                    <span style="color:#4ade80">● pods 1/1</span>
+                    <span style="color:#38bdf8">● svc 1</span>
+                    <span style="color:#a78bfa">● tls ✓</span>
+                  </div>
+                </td>
+                <td style="padding:0.5rem"><a href="#">portfolio.nacfson.cloud</a></td>
+              </tr>
+              <tr>
+                <td style="padding:0.5rem">pn</td>
+                <td style="padding:0.5rem">ghcr.io/nacfson/pn:latest</td>
+                <td style="padding:0.5rem">
+                  <div style="display:flex;align-items:center;gap:0.75rem">
+                    <span>
+                      <button class="mock-button" style="padding:0.25rem 0.5rem">-</button>
+                      <span style="margin:0 0.5rem">2</span>
+                      <button class="mock-button" style="padding:0.25rem 0.5rem">+</button>
+                    </span>
+                    <span style="color:#4ade80">● pods 2/2</span>
+                    <span style="color:#f87171">● svc 0</span>
+                    <span style="color:#facc15">● tls …</span>
+                  </div>
+                </td>
+                <td style="padding:0.5rem"><a href="#">pn.nacfson.cloud</a></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

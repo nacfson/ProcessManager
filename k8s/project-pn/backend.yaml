@@ -48,6 +48,42 @@ spec:
                 secretKeyRef:
                   name: project-pn-secrets
                   key: ENRICH_MODEL
+            - name: ENRICH_PRIMARY_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_PRIMARY_BASE_URL
+                  optional: true
+            - name: ENRICH_PRIMARY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_PRIMARY_API_KEY
+                  optional: true
+            - name: ENRICH_PRIMARY_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_PRIMARY_MODEL
+                  optional: true
+            - name: ENRICH_FALLBACK_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_FALLBACK_BASE_URL
+                  optional: true
+            - name: ENRICH_FALLBACK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_FALLBACK_API_KEY
+                  optional: true
+            - name: ENRICH_FALLBACK_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: ENRICH_FALLBACK_MODEL
+                  optional: true
             - name: DEFAULT_TARGET_LANG
               value: "en"
             - name: DEFAULT_DEFINITION_LANG

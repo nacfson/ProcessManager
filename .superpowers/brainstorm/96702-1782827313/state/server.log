@@ -1,0 +1,4 @@
+{"type":"server-started","port":58816,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:58816/?key=0e528c8b08dfce36c2d43413ab3c1a0fa4920a4bc4cab00edf337d6ab5673087","screen_dir":"/Users/hyungjuyu/Projects/Brain/ProcessManager/.superpowers/brainstorm/96702-1782827313/content","state_dir":"/Users/hyungjuyu/Projects/Brain/ProcessManager/.superpowers/brainstorm/96702-1782827313/state","idle_timeout_ms":14400000}
+{"type":"screen-added","file":"/Users/hyungjuyu/Projects/Brain/ProcessManager/.superpowers/brainstorm/96702-1782827313/content/process-row-options.html"}
+{"type":"screen-added","file":"/Users/hyungjuyu/Projects/Brain/ProcessManager/.superpowers/brainstorm/96702-1782827313/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}
