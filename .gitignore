@@ -4,3 +4,7 @@ tmp/
 
 # OS files
 .DS_Store
+
+# Local secrets – never commit
+k8s/secrets.local.yaml
+k8s/*.local.*

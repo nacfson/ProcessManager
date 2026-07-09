@@ -31,6 +31,12 @@ if [ -z "${ADMIN_ID}" ]; then
   exit 1
 fi
 
+# Validate ADMIN_ID is a UUID to prevent SQL injection
+if [[ ! "${ADMIN_ID}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+  echo "ERROR: ADMIN_ID is not a valid UUID: ${ADMIN_ID}" >&2
+  exit 1
+fi
+
 echo "==> Granting admin ${ADMIN_ID} owner access to projects"
 
 psql_exec "

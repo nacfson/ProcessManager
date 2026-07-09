@@ -14,6 +14,6 @@ if [[ -z "$JOIN_COMMAND" ]]; then
 fi
 
 echo "==> Joining cluster"
-$JOIN_COMMAND
+eval "$JOIN_COMMAND"
 
 echo "==> Worker node joined"
