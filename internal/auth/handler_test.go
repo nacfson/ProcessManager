@@ -816,3 +816,41 @@ func TestRegisterUnverifiedEmailRecreatesVerification(t *testing.T) {
 		t.Errorf("password was not updated to secondpassword: %v", err)
 	}
 }
+
+func TestVerifyInternalToken_UsesConstantTimeCompare(t *testing.T) {
+	t.Setenv("AUTH_INTERNAL_TOKEN", "test-secret-token")
+
+	store := &Store{}
+	h := &Handler{store: store}
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /api/internal/test", h.verifyInternalToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+
+	// Valid token
+	req := httptest.NewRequest("GET", "/api/internal/test", nil)
+	req.Header.Set("Authorization", "Bearer test-secret-token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("valid token: expected 200, got %d", rec.Code)
+	}
+
+	// Invalid token
+	req = httptest.NewRequest("GET", "/api/internal/test", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("invalid token: expected 401, got %d", rec.Code)
+	}
+
+	// Missing token
+	req = httptest.NewRequest("GET", "/api/internal/test", nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("missing token: expected 401, got %d", rec.Code)
+	}
+}

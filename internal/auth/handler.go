@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -234,12 +235,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 // RegisterForm renders the registration page.
 func (h *Handler) RegisterForm(w http.ResponseWriter, r *http.Request) {
 	returnTo := r.URL.Query().Get("rd")
-	if returnTo == "" {
-		returnTo = "/"
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
+	if err != nil {
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.tmpl.ExecuteTemplate(w, "register.html", map[string]any{
-		"ReturnTo": returnTo,
+		"ReturnTo": validatedReturnTo,
 		"Error":    r.URL.Query().Get("error"),
 	})
 }
@@ -259,8 +261,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	if returnTo == "" {
 		returnTo = r.URL.Query().Get("rd")
 	}
-	if returnTo == "" {
-		returnTo = "/"
+	var valErr error
+	returnTo, valErr = validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
+	if valErr != nil {
+		returnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	}
 
 	if !h.loginAllowed(r, email) {
@@ -347,7 +351,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		verificationLink := fmt.Sprintf("http://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
+		verificationLink := fmt.Sprintf("https://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
 
 		smtpHost := os.Getenv("SMTP_HOST")
 		if smtpHost != "" {
@@ -424,7 +428,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	verificationLink := fmt.Sprintf("http://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
+	verificationLink := fmt.Sprintf("https://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
 
 	smtpHost := os.Getenv("SMTP_HOST")
 	if smtpHost != "" {
@@ -861,7 +865,7 @@ func (h *Handler) verifyInternalToken(next http.Handler) http.Handler {
 			return
 		}
 		token := BearerToken(r)
-		if token == "" || token != expected {
+		if token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) != 1 {
 			writeAPIError(w, http.StatusUnauthorized, "invalid internal token")
 			return
 		}
