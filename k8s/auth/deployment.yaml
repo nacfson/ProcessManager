@@ -20,6 +20,10 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/arch: amd64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
       containers:
         - name: auth
           image: 192.168.219.100:5000/processmanager:latest
@@ -60,6 +64,9 @@ spec:
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
           resources:
             requests:
               memory: "64Mi"

@@ -155,12 +155,18 @@ func (c *Client) CreateProcess(ctx context.Context, p models.Process, domain str
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
 					NodeSelector: nodeSelector,
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot: boolPtr(true),
+					},
 					Containers: []corev1.Container{{
 						Name:      p.Name,
 						Image:     p.Image,
 						Ports:     []corev1.ContainerPort{{ContainerPort: p.Port}},
 						Env:       env,
 						Resources: resources,
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: boolPtr(false),
+						},
 					}},
 				},
 			},
@@ -191,7 +197,7 @@ func (c *Client) CreateProcess(ctx context.Context, p models.Process, domain str
 			Namespace: p.Namespace,
 			Labels:    labels,
 			Annotations: map[string]string{
-				"cert-manager.io/cluster-issuer": "letsencrypt-prod",
+				"cert-manager.io/cluster-issuer": "selfsigned-cluster-issuer",
 			},
 		},
 		Spec: networkingv1.IngressSpec{
@@ -537,6 +543,10 @@ func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (
 
 func strPtr(s string) *string {
 	return &s
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 func (c *Client) deploymentToProcess(d appsv1.Deployment) models.Process {

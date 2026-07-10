@@ -18,6 +18,10 @@ spec:
       nodeSelector:
         kubernetes.io/arch: amd64
       serviceAccountName: processmanager
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
       containers:
         - name: manager
           image: 192.168.219.100:5000/processmanager:latest
@@ -44,6 +48,9 @@ spec:
           args:
             - -namespace=nacfson-personal
             - -domain=nacfson.cloud
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
           resources:
             requests:
               memory: "64Mi"
