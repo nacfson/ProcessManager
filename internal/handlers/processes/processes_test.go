@@ -441,3 +441,26 @@ func mustTemplate(t *testing.T) *template.Template {
 	}
 	return tmpl
 }
+
+func TestPublicURLWithPort(t *testing.T) {
+	deps := newDeps(t)
+	deps.IngressHTTPSPort = 30443
+	if got := deps.PublicURL("app"); got != "https://app.test.local:30443" {
+		t.Errorf("expected https://app.test.local:30443, got %s", got)
+	}
+}
+
+func TestPublicURLWithoutPort(t *testing.T) {
+	deps := newDeps(t)
+	if got := deps.PublicURL("app"); got != "https://app.test.local" {
+		t.Errorf("expected https://app.test.local, got %s", got)
+	}
+}
+
+func TestPublicURLPort443(t *testing.T) {
+	deps := newDeps(t)
+	deps.IngressHTTPSPort = 443
+	if got := deps.PublicURL("app"); got != "https://app.test.local" {
+		t.Errorf("expected port 443 to be omitted, got %s", got)
+	}
+}

@@ -59,7 +59,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	viewModels := make([]ProcessViewModel, len(processes))
 	for i, p := range processes {
-		p.PublicURL = fmt.Sprintf("https://%s.%s", p.Name, h.deps.Domain)
+		p.PublicURL = h.deps.PublicURL(p.Name)
 		pods, err := h.deps.Client.ListPods(r.Context(), h.deps.Namespace, p.Name)
 		var restarts int32
 		if err == nil {
@@ -127,7 +127,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	p.PublicURL = fmt.Sprintf("https://%s.%s", p.Name, h.deps.Domain)
+	p.PublicURL = h.deps.PublicURL(p.Name)
 	handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/row", ProcessViewModel{Process: p, Restarts: 0})
 }
 
@@ -223,7 +223,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("failed to fetch pod logs", "process", name, "error", err)
 		logs = "No logs available or no pods running."
 	}
-	publicURL := fmt.Sprintf("https://%s.%s", name, h.deps.Domain)
+	publicURL := h.deps.PublicURL(name)
 	detail.Process.PublicURL = publicURL
 
 	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/detail", map[string]any{
