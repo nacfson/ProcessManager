@@ -16,6 +16,7 @@ import (
 )
 
 var AuthHost string
+var AuthHostWithPort string
 
 // AuthStore abstracts auth/shared persistence for handler testing.
 type AuthStore interface {
@@ -32,10 +33,21 @@ type Deps struct {
 	Provisioner interface {
 		ListDatabases(ctx context.Context) ([]string, error)
 	}
-	Namespace string
-	Domain    string
-	AuthMW    *auth.Middleware
-	Tmpl      *template.Template
+	Namespace        string
+	Domain           string
+	IngressHTTPSPort int32
+	AuthMW           *auth.Middleware
+	Tmpl             *template.Template
+}
+
+// PublicURL returns the external HTTPS URL for a process name.
+// When IngressHTTPSPort is non-zero and not 443, the port is included.
+func (d *Deps) PublicURL(name string) string {
+	host := fmt.Sprintf("%s.%s", name, d.Domain)
+	if d.IngressHTTPSPort > 0 && d.IngressHTTPSPort != 443 {
+		return fmt.Sprintf("https://%s:%d", host, d.IngressHTTPSPort)
+	}
+	return fmt.Sprintf("https://%s", host)
 }
 
 // NewTemplate loads all templates under web/templates recursively and registers helpers.
@@ -139,7 +151,9 @@ func render(w http.ResponseWriter, contentType string, tmpl *template.Template, 
 func Render(tmpl *template.Template, w http.ResponseWriter, r *http.Request, name string, data any) {
 	if m, ok := data.(map[string]any); ok {
 		m["AuthHost"] = AuthHost
+		m["AuthHostWithPort"] = AuthHostWithPort
 		m["ManagerHost"] = r.Host
+		m["CSRFToken"] = CSRFToken(r)
 	}
 	if sess := auth.UserContext(r.Context()); sess != nil {
 		if m, ok := data.(map[string]any); ok {

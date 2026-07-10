@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{or .Title "Process Manager"}}</title>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.body.addEventListener('htmx:configRequest', function(event) {
+        var csrfCookie = document.cookie.split('; ').find(function(c) { return c.startsWith('nacfson_csrf='); });
+        if (csrfCookie) {
+            event.detail.headers['X-CSRF-Token'] = csrfCookie.split('=')[1];
+        }
+    });
+});
+</script>
     <style>
         :root { --bg: #0f172a; --panel: #1e293b; --text: #e2e8f0; --accent: #38bdf8; --danger: #f87171; --muted: #94a3b8; }
         * { box-sizing: border-box; }
@@ -61,7 +71,7 @@
                         <span style="background: rgba(56, 189, 248, 0.15); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 500;">Admin</span>
                     {{end}}
                 </span>
-                <form action="https://{{.AuthHost}}/logout" method="POST" style="margin: 0; display: inline;">
+                <form action="https://{{.AuthHostWithPort}}/logout" method="POST" style="margin: 0; display: inline;">
                     <input type="hidden" name="return_to" value="https://{{.ManagerHost}}/">
                     <button type="submit" class="btn" style="background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.2); color: var(--danger); padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(248, 113, 113, 0.2)'" onmouseout="this.style.background='rgba(248, 113, 113, 0.1)'">Logout</button>
                 </form>

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -29,10 +30,16 @@ func main() {
 	authInternalToken := flag.String("auth-internal-token", os.Getenv("AUTH_INTERNAL_TOKEN"), "auth internal token")
 	sharedDSN := flag.String("shared-dsn", os.Getenv("SHARED_DATABASE_URL"), "shared app database DSN")
 	authHost := flag.String("auth-host", "auth.nacfson.cloud", "auth service host")
+	ingressHTTPSPort := flag.Int("ingress-https-port", 0, "ingress-nginx HTTPS port (e.g. 30443); 0 = standard port, omitted from URLs")
 	fakeK8s := flag.Bool("fake-k8s", false, "use an in-memory fake Kubernetes client")
 	flag.Parse()
 
 	handlers.AuthHost = *authHost
+	if *ingressHTTPSPort > 0 && *ingressHTTPSPort != 443 {
+		handlers.AuthHostWithPort = fmt.Sprintf("%s:%d", *authHost, *ingressHTTPSPort)
+	} else {
+		handlers.AuthHostWithPort = *authHost
+	}
 
 	useFake := *fakeK8s || os.Getenv("USE_FAKE_K8S") == "true"
 
@@ -56,10 +63,11 @@ func main() {
 	}
 
 	deps := handlers.Deps{
-		Client:    client,
-		Namespace: *namespace,
-		Domain:    *domain,
-		Tmpl:      tmpl,
+		Client:           client,
+		Namespace:        *namespace,
+		Domain:           *domain,
+		Tmpl:             tmpl,
+		IngressHTTPSPort: int32(*ingressHTTPSPort),
 	}
 
 	store := auth.NewHTTPAuthStore(*authServiceURL, *authInternalToken)
@@ -97,7 +105,7 @@ func main() {
 	}
 
 	log.Printf("process manager listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	if err := http.ListenAndServe(*addr, handlers.CSRFMiddleware(mux)); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
