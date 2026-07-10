@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{or .Title "Process Manager"}}</title>
-    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"
+            integrity="sha384-SDoiYpX0Rds2uJxGagpIgvo8MRGg5n25bu3kbfNTWBJfryGubn1FzSa+q15lOiTt"
+            crossorigin="anonymous"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     document.body.addEventListener('htmx:configRequest', function(event) {

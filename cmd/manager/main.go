@@ -105,7 +105,7 @@ func main() {
 	}
 
 	log.Printf("process manager listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, handlers.CSRFMiddleware(mux)); err != nil {
+	if err := http.ListenAndServe(*addr, handlers.SecurityHeaders(handlers.CSRFMiddleware(mux))); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
