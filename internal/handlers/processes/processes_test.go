@@ -3,6 +3,7 @@ package processes
 import (
 	"context"
 	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,11 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"processmanager/internal/auth"
 	"processmanager/internal/handlers"
 	"processmanager/internal/k8s"
 	"processmanager/internal/k8s/fake"
 	"processmanager/internal/models"
 )
+
+func adminRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	sess := &auth.Session{IsAdmin: true, Email: "admin@test.com"}
+	return req.WithContext(context.WithValue(req.Context(), auth.ContextUserKey, sess))
+}
 
 func TestListRendersPage(t *testing.T) {
 	deps := newDeps(t)
@@ -65,7 +73,7 @@ func TestNewFormRenders(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/new", nil))
+	mux.ServeHTTP(rec, adminRequest("GET", "/processes/new", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -94,7 +102,7 @@ func TestCreateProcess(t *testing.T) {
 	form.Set("env", "FOO=bar\n# comment\nBAZ=qux")
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/processes", strings.NewReader(form.Encode()))
+	req := adminRequest("POST", "/processes", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
@@ -132,7 +140,7 @@ func TestCreateValidationError(t *testing.T) {
 	form.Set("image", "")
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/processes", strings.NewReader(form.Encode()))
+	req := adminRequest("POST", "/processes", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
@@ -150,7 +158,7 @@ func TestDeleteProcess(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/processes/gone/delete", nil))
+	mux.ServeHTTP(rec, adminRequest("POST", "/processes/gone/delete", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}

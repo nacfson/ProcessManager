@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,12 @@ import (
 	"processmanager/internal/auth"
 	"processmanager/internal/handlers"
 )
+
+func adminRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	sess := &auth.Session{IsAdmin: true, Email: "admin@test.com"}
+	return req.WithContext(context.WithValue(req.Context(), auth.ContextUserKey, sess))
+}
 
 func TestListRenders(t *testing.T) {
 	deps := handlers.Deps{
@@ -24,7 +31,7 @@ func TestListRenders(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/activity", nil))
+	mux.ServeHTTP(rec, adminRequest("GET", "/activity", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -46,7 +53,7 @@ func TestListRendersErrorOnAuditFailure(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/activity", nil))
+	mux.ServeHTTP(rec, adminRequest("GET", "/activity", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}

@@ -10,11 +10,11 @@ import (
 // contextKey is used for request context values.
 type contextKey int
 
-const contextUserKey contextKey = iota
+const ContextUserKey contextKey = iota
 
 // UserContext returns the authenticated user from the request context.
 func UserContext(ctx context.Context) *Session {
-	s, _ := ctx.Value(contextUserKey).(*Session)
+	s, _ := ctx.Value(ContextUserKey).(*Session)
 	return s
 }
 
@@ -59,7 +59,7 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			m.redirect(w, r)
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), contextUserKey, sess)))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ContextUserKey, sess)))
 	})
 }
 
@@ -69,7 +69,7 @@ func (m *Middleware) OptionalAuth(next http.Handler) http.Handler {
 		token := SessionCookie(r)
 		if token != "" {
 			if sess, err := m.validator.GetSessionByTokenHash(r.Context(), HashSessionToken(token)); err == nil && sess != nil {
-				r = r.WithContext(context.WithValue(r.Context(), contextUserKey, sess))
+				r = r.WithContext(context.WithValue(r.Context(), ContextUserKey, sess))
 			}
 		}
 		next.ServeHTTP(w, r)

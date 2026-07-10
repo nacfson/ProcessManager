@@ -19,11 +19,15 @@ func New(deps handlers.Deps) *Handler {
 
 // RegisterRoutes registers activity routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /activity", h.require(h.List))
+	mux.HandleFunc("GET /activity", h.requireAdmin(h.List))
 }
 
 func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 	return handlers.RequireAuth(h.deps.AuthMW, next)
+}
+
+func (h *Handler) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return handlers.RequireAdmin(h.deps.AuthMW, next)
 }
 
 // List shows recent activity.

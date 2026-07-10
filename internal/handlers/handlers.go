@@ -107,6 +107,20 @@ func RequireAuth(amw *auth.Middleware, next http.HandlerFunc) http.HandlerFunc {
 	return amw.RequireAuth(next).ServeHTTP
 }
 
+// RequireAdmin wraps a handler requiring the user to be an admin.
+// It first applies RequireAuth, then checks IsAdmin.
+func RequireAdmin(amw *auth.Middleware, next http.HandlerFunc) http.HandlerFunc {
+	authed := RequireAuth(amw, func(w http.ResponseWriter, r *http.Request) {
+		sess := auth.UserContext(r.Context())
+		if sess == nil || !sess.IsAdmin {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	})
+	return authed
+}
+
 // render writes a template to the response with the given content type.
 // It is the shared implementation for Render and RenderFragment.
 func render(w http.ResponseWriter, contentType string, tmpl *template.Template, name string, data any) {

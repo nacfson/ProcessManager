@@ -25,9 +25,9 @@ func New(deps handlers.Deps) *Handler {
 // RegisterRoutes registers process routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /processes", h.require(h.List))
-	mux.HandleFunc("GET /processes/new", h.require(h.NewForm))
-	mux.HandleFunc("POST /processes", h.require(h.Create))
-	mux.HandleFunc("POST /processes/{name}/delete", h.require(h.Delete))
+	mux.HandleFunc("GET /processes/new", h.requireAdmin(h.NewForm))
+	mux.HandleFunc("POST /processes", h.requireAdmin(h.Create))
+	mux.HandleFunc("POST /processes/{name}/delete", h.requireAdmin(h.Delete))
 	mux.HandleFunc("GET /processes/{name}/logs", h.require(h.Logs))
 	mux.HandleFunc("GET /processes/{name}/logs/stream", h.require(h.LogStream))
 	mux.HandleFunc("GET /processes/{name}/status", h.require(h.Status))
@@ -38,6 +38,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 	return handlers.RequireAuth(h.deps.AuthMW, next)
+}
+
+func (h *Handler) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return handlers.RequireAdmin(h.deps.AuthMW, next)
 }
 
 // ProcessViewModel wraps models.Process with views-specific fields like restarts.

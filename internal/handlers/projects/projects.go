@@ -22,11 +22,15 @@ func New(deps handlers.Deps) *Handler {
 // RegisterRoutes registers project routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /projects", h.require(h.List))
-	mux.HandleFunc("POST /projects", h.require(h.Create))
+	mux.HandleFunc("POST /projects", h.requireAdmin(h.Create))
 }
 
 func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
 	return handlers.RequireAuth(h.deps.AuthMW, next)
+}
+
+func (h *Handler) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return handlers.RequireAdmin(h.deps.AuthMW, next)
 }
 
 // List shows all projects.

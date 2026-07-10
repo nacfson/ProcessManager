@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,12 @@ import (
 	"processmanager/internal/auth"
 	"processmanager/internal/handlers"
 )
+
+func adminRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	sess := &auth.Session{IsAdmin: true, Email: "admin@test.com"}
+	return req.WithContext(context.WithValue(req.Context(), auth.ContextUserKey, sess))
+}
 
 func TestListRenders(t *testing.T) {
 	deps := handlers.Deps{
@@ -50,7 +57,7 @@ func TestCreateValidationError(t *testing.T) {
 	form.Set("domainHost", "")
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/projects", strings.NewReader(form.Encode()))
+	req := adminRequest("POST", "/projects", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
@@ -76,7 +83,7 @@ func TestCreateRequiresAuthStore(t *testing.T) {
 	form.Set("type", "simple")
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/projects", strings.NewReader(form.Encode()))
+	req := adminRequest("POST", "/projects", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
@@ -194,7 +201,7 @@ func TestCreateHappyPath(t *testing.T) {
 	// authEnabled is intentionally omitted to verify unchecked state.
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/projects", strings.NewReader(form.Encode()))
+	req := adminRequest("POST", "/projects", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
