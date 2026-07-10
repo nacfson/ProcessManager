@@ -64,7 +64,7 @@ func (p *Provisioner) Provision(ctx context.Context, projectName string) (databa
 		return "", "", "", "", fmt.Errorf("grant user: %w", err)
 	}
 
-	dsn = fmt.Sprintf("postgres://%s:%s@shared-app-db.nacfson-data.svc.cluster.local:5432/%s?sslmode=disable", user, password, database)
+	dsn = fmt.Sprintf("postgres://%s:%s@shared-app-db.nacfson-data.svc.cluster.local:5432/%s?sslmode=require", user, password, database)
 	return database, user, password, dsn, nil
 }
 

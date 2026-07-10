@@ -4,33 +4,65 @@ metadata:
   name: processmanager
   namespace: nacfson-personal
 ---
+# Minimal ClusterRole — only cluster-level resources
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: processmanager
+  name: processmanager-cluster
 rules:
   - apiGroups: [""]
-    resources: ["namespaces", "pods", "services", "configmaps", "secrets", "persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["batch"]
-    resources: ["jobs", "cronjobs"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: processmanager
+  name: processmanager-cluster
 subjects:
   - kind: ServiceAccount
     name: processmanager
     namespace: nacfson-personal
 roleRef:
   kind: ClusterRole
+  name: processmanager-cluster
+  apiGroup: rbac.authorization.k8s.io
+---
+# Namespace-scoped Role — only what the manager actually needs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: processmanager
+  namespace: nacfson-personal
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: processmanager
+  namespace: nacfson-personal
+subjects:
+  - kind: ServiceAccount
+    name: processmanager
+    namespace: nacfson-personal
+roleRef:
+  kind: Role
   name: processmanager
   apiGroup: rbac.authorization.k8s.io
