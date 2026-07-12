@@ -125,6 +125,9 @@ func TestListPods(t *testing.T) {
 	if p.Name != "pod-1" || p.Phase != "Running" || p.Restarts != 2 || p.LastTermReason != "OOMKilled" {
 		t.Errorf("unexpected pod properties: %+v", p)
 	}
+	if p.Namespace != "default" {
+		t.Errorf("expected namespace default, got %s", p.Namespace)
+	}
 	if p.RequestsCPU != "100m" || p.RequestsMem != "128Mi" || p.LimitsCPU != "200m" || p.LimitsMem != "256Mi" {
 		t.Errorf("unexpected resource config: %+v", p)
 	}
@@ -171,6 +174,9 @@ func TestListEvents(t *testing.T) {
 
 	if events[0].Reason != "BackOff" {
 		t.Errorf("expected BackOff event first, got %s", events[0].Reason)
+	}
+	if events[0].Namespace != "default" {
+		t.Errorf("expected namespace default, got %s", events[0].Namespace)
 	}
 }
 
@@ -234,6 +240,10 @@ func TestGetProcessDetail(t *testing.T) {
 	}
 	if len(detail.Events) != 1 {
 		t.Errorf("expected 1 event, got %d", len(detail.Events))
+	} else {
+		if detail.Events[0].Namespace != "default" {
+			t.Errorf("expected namespace default, got %s", detail.Events[0].Namespace)
+		}
 	}
 }
 

@@ -1,7 +1,7 @@
 {{template "components/layout" .}}
 
 {{define "pages/processes/list-content"}}
-{{template "components/page-header" dict "Title" "Processes" "Action" "New Process" "Href" "/processes/new"}}
+{{template "components/page-header" dict "Title" "Processes" "Action" "New Process" "Href" (print "/projects/" .Project "/processes/new")}}
 <div class="card">
     {{if .Processes}}
     <table>

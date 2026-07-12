@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"processmanager/internal/k8s"
 	"processmanager/internal/models"
@@ -18,7 +19,7 @@ type Client struct {
 
 	// Nodes holds fake node data for ListNodes.
 	Nodes []k8s.NodeInfo
-	// Pods holds fake pod data keyed by process name for ListPods.
+	// Pods holds fake pod data keyed by "namespace/processName" for ListPods.
 	Pods map[string][]k8s.PodInfo
 	// Events holds fake events for ListEvents.
 	Events []k8s.EventInfo
@@ -41,7 +42,13 @@ func (c *Client) ListProcesses(ctx context.Context, namespace string) ([]models.
 	if c.ErrListProcesses != nil {
 		return nil, c.ErrListProcesses
 	}
-	return c.processes, nil
+	var filtered []models.Process
+	for _, p := range c.processes {
+		if p.Namespace == namespace {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered, nil
 }
 
 func (c *Client) GetProcess(ctx context.Context, namespace, name string) (*models.Process, error) {
@@ -89,17 +96,28 @@ func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([
 	if c.Pods == nil {
 		return nil, nil
 	}
-	return c.Pods[processName], nil
+	key := namespace + "/" + processName
+	pods := c.Pods[key]
+	for i := range pods {
+		pods[i].Namespace = namespace
+	}
+	return pods, nil
 }
 
 func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([]k8s.EventInfo, error) {
 	if c.ErrListEvents != nil {
 		return nil, c.ErrListEvents
 	}
-	if limit <= 0 || limit >= len(c.Events) {
-		return c.Events, nil
+	var filtered []k8s.EventInfo
+	for _, e := range c.Events {
+		if e.Namespace == "" || e.Namespace == namespace || strings.HasPrefix(e.InvolvedObject, namespace+"/") {
+			filtered = append(filtered, e)
+		}
 	}
-	return c.Events[:limit], nil
+	if limit <= 0 || limit >= len(filtered) {
+		return filtered, nil
+	}
+	return filtered[:limit], nil
 }
 
 func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (*k8s.ProcessDetail, error) {

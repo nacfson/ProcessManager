@@ -22,9 +22,8 @@ func adminRequest(method, target string, body io.Reader) *http.Request {
 
 func TestListRenders(t *testing.T) {
 	deps := handlers.Deps{
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
+		Domain: "test.local",
+		Tmpl:   mustTemplate(t),
 	}
 	h := New(deps)
 	mux := http.NewServeMux()
@@ -43,7 +42,6 @@ func TestListRenders(t *testing.T) {
 func TestListRendersErrorOnAuditFailure(t *testing.T) {
 	store := &failingAuthStore{}
 	deps := handlers.Deps{
-		Namespace: "test-ns",
 		Domain:    "test.local",
 		AuthStore: store,
 		Tmpl:      mustTemplate(t),
@@ -70,6 +68,10 @@ type failingAuthStore struct{}
 
 func (s *failingAuthStore) CreateProject(_ context.Context, _, _, _, _ string, _, _ bool) (*auth.Project, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (s *failingAuthStore) GetProjectByName(_ context.Context, _ string) (*auth.Project, error) {
+	return nil, nil
 }
 
 func (s *failingAuthStore) ListProjects(_ context.Context) ([]auth.Project, error) {

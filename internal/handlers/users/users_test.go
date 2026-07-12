@@ -22,9 +22,8 @@ func adminRequest(method, target string, body io.Reader) *http.Request {
 
 func TestListRenders(t *testing.T) {
 	deps := handlers.Deps{
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
+		Domain: "test.local",
+		Tmpl:   mustTemplate(t),
 	}
 	h := New(deps)
 	mux := http.NewServeMux()
@@ -48,6 +47,10 @@ func (s *fakeAuthStore) CreateProject(_ context.Context, _ string, _ string, _ s
 	return nil, nil
 }
 
+func (s *fakeAuthStore) GetProjectByName(_ context.Context, _ string) (*auth.Project, error) {
+	return nil, nil
+}
+
 func (s *fakeAuthStore) ListProjects(_ context.Context) ([]auth.Project, error) {
 	return nil, nil
 }
@@ -65,7 +68,6 @@ func (s *fakeAuthStore) ListAuditEvents(_ context.Context, _ int) ([]auth.AuditE
 
 func TestListSurfacesError(t *testing.T) {
 	deps := handlers.Deps{
-		Namespace: "test-ns",
 		Domain:    "test.local",
 		AuthStore: &fakeAuthStore{ErrListUsers: errors.New("list failed")},
 		Tmpl:      mustTemplate(t),

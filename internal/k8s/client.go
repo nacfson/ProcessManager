@@ -411,6 +411,7 @@ func (c *Client) ListPods(ctx context.Context, namespace, processName string) ([
 
 		podInfos = append(podInfos, PodInfo{
 			Name:           p.Name,
+			Namespace:      p.Namespace,
 			Phase:          string(p.Status.Phase),
 			Restarts:       restarts,
 			LastTermReason: lastTermReason,
@@ -453,6 +454,7 @@ func (c *Client) ListEvents(ctx context.Context, namespace string, limit int) ([
 		}
 
 		warnings = append(warnings, EventInfo{
+			Namespace:      e.Namespace,
 			Type:           e.Type,
 			Reason:         e.Reason,
 			Message:        e.Message,

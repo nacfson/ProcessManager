@@ -18,6 +18,35 @@ import (
 	"processmanager/internal/models"
 )
 
+type testAuthStore struct {
+	projects []auth.Project
+}
+
+func (s *testAuthStore) CreateProject(ctx context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*auth.Project, error) {
+	return nil, nil
+}
+
+func (s *testAuthStore) GetProjectByName(ctx context.Context, name string) (*auth.Project, error) {
+	for _, p := range s.projects {
+		if p.Name == name {
+			return &p, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *testAuthStore) ListProjects(ctx context.Context) ([]auth.Project, error) {
+	return s.projects, nil
+}
+
+func (s *testAuthStore) ListUsers(ctx context.Context) ([]auth.User, error) {
+	return nil, nil
+}
+
+func (s *testAuthStore) ListAuditEvents(ctx context.Context, limit int) ([]auth.AuditEvent, error) {
+	return nil, nil
+}
+
 func adminRequest(method, target string, body io.Reader) *http.Request {
 	req := httptest.NewRequest(method, target, body)
 	sess := &auth.Session{IsAdmin: true, Email: "admin@test.com"}
@@ -31,7 +60,7 @@ func TestListRendersPage(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -53,7 +82,7 @@ func TestListRendersProcessRows(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -73,7 +102,7 @@ func TestNewFormRenders(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, adminRequest("GET", "/processes/new", nil))
+	mux.ServeHTTP(rec, adminRequest("GET", "/projects/test-ns/processes/new", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -81,7 +110,7 @@ func TestNewFormRenders(t *testing.T) {
 	if !strings.Contains(body, "New Process") {
 		t.Errorf("missing page title")
 	}
-	if !strings.Contains(body, `hx-post="/processes"`) {
+	if !strings.Contains(body, `hx-post="/projects/test-ns/processes"`) {
 		t.Errorf("missing create form")
 	}
 }
@@ -102,7 +131,7 @@ func TestCreateProcess(t *testing.T) {
 	form.Set("env", "FOO=bar\n# comment\nBAZ=qux")
 
 	rec := httptest.NewRecorder()
-	req := adminRequest("POST", "/processes", strings.NewReader(form.Encode()))
+	req := adminRequest("POST", "/projects/test-ns/processes", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
@@ -140,7 +169,7 @@ func TestCreateValidationError(t *testing.T) {
 	form.Set("image", "")
 
 	rec := httptest.NewRecorder()
-	req := adminRequest("POST", "/processes", strings.NewReader(form.Encode()))
+	req := adminRequest("POST", "/projects/test-ns/processes", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	mux.ServeHTTP(rec, req)
 
@@ -158,7 +187,7 @@ func TestDeleteProcess(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, adminRequest("POST", "/processes/gone/delete", nil))
+	mux.ServeHTTP(rec, adminRequest("POST", "/projects/test-ns/processes/gone/delete", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -177,7 +206,7 @@ func TestLogsRenders(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/logs", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/logs", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -199,7 +228,7 @@ func TestLogStream(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/logs/stream", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/logs/stream", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -216,7 +245,7 @@ func TestLogStreamEscapesHTML(t *testing.T) {
 	fc := &fake.Client{Logs: "<script>alert('xss')</script>"}
 	deps := handlers.Deps{
 		Client:    fc,
-		Namespace: "test-ns",
+		AuthStore: &testAuthStore{projects: []auth.Project{{Name: "test-ns", Namespace: "test-ns"}}},
 		Domain:    "test.local",
 		Tmpl:      mustTemplate(t),
 	}
@@ -227,7 +256,7 @@ func TestLogStreamEscapesHTML(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/logs/stream", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/logs/stream", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -249,7 +278,7 @@ func TestStatusReady(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/status", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/status", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -271,7 +300,7 @@ func TestStatusPending(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/status", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/status", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -291,7 +320,7 @@ func TestStatusNotFound(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/missing/status", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/missing/status", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -313,7 +342,7 @@ func TestDetailRendersPage(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/detail", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/detail", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -336,7 +365,7 @@ func TestDetailNotFound(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/missing/detail", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/missing/detail", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
 	}
@@ -346,7 +375,7 @@ func TestPodsFragmentRenders(t *testing.T) {
 	deps := newDeps(t)
 	fc := deps.Client.(*fake.Client)
 	fc.Pods = map[string][]k8s.PodInfo{
-		"app": {
+		"test-ns/app": {
 			{
 				Name:      "app-pod-1",
 				Phase:     "Running",
@@ -362,7 +391,7 @@ func TestPodsFragmentRenders(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/pods", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/pods", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -383,6 +412,7 @@ func TestDetailEventsFragmentRenders(t *testing.T) {
 	fc := deps.Client.(*fake.Client)
 	fc.Events = []k8s.EventInfo{
 		{
+			Namespace:      "test-ns",
 			Type:           "Warning",
 			Reason:         "Failed",
 			Message:        "Back-off restarting failed container",
@@ -390,6 +420,7 @@ func TestDetailEventsFragmentRenders(t *testing.T) {
 			LastTimestamp:  time.Now(),
 		},
 		{
+			Namespace:      "test-ns",
 			Type:           "Warning",
 			Reason:         "Unrelated",
 			Message:        "Unrelated warning",
@@ -404,7 +435,7 @@ func TestDetailEventsFragmentRenders(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/processes/app/events", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/test-ns/processes/app/events", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
@@ -420,10 +451,14 @@ func TestDetailEventsFragmentRenders(t *testing.T) {
 func newDeps(t *testing.T) handlers.Deps {
 	t.Helper()
 	return handlers.Deps{
-		Client:    fake.NewClient(),
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
+		Client: fake.NewClient(),
+		AuthStore: &testAuthStore{
+			projects: []auth.Project{
+				{Name: "test-ns", Namespace: "test-ns"},
+			},
+		},
+		Domain: "test.local",
+		Tmpl:   mustTemplate(t),
 	}
 }
 

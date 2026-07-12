@@ -24,16 +24,16 @@ func New(deps handlers.Deps) *Handler {
 
 // RegisterRoutes registers process routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /processes", h.require(h.List))
-	mux.HandleFunc("GET /processes/new", h.requireAdmin(h.NewForm))
-	mux.HandleFunc("POST /processes", h.requireAdmin(h.Create))
-	mux.HandleFunc("POST /processes/{name}/delete", h.requireAdmin(h.Delete))
-	mux.HandleFunc("GET /processes/{name}/logs", h.require(h.Logs))
-	mux.HandleFunc("GET /processes/{name}/logs/stream", h.require(h.LogStream))
-	mux.HandleFunc("GET /processes/{name}/status", h.require(h.Status))
-	mux.HandleFunc("GET /processes/{name}/detail", h.require(h.Detail))
-	mux.HandleFunc("GET /processes/{name}/pods", h.require(h.PodsFragment))
-	mux.HandleFunc("GET /processes/{name}/events", h.require(h.DetailEventsFragment))
+	mux.HandleFunc("GET /projects/{project}/processes", h.require(h.List))
+	mux.HandleFunc("GET /projects/{project}/processes/new", h.requireAdmin(h.NewForm))
+	mux.HandleFunc("POST /projects/{project}/processes", h.requireAdmin(h.Create))
+	mux.HandleFunc("POST /projects/{project}/processes/{name}/delete", h.requireAdmin(h.Delete))
+	mux.HandleFunc("GET /projects/{project}/processes/{name}/logs", h.require(h.Logs))
+	mux.HandleFunc("GET /projects/{project}/processes/{name}/logs/stream", h.require(h.LogStream))
+	mux.HandleFunc("GET /projects/{project}/processes/{name}/status", h.require(h.Status))
+	mux.HandleFunc("GET /projects/{project}/processes/{name}/detail", h.require(h.Detail))
+	mux.HandleFunc("GET /projects/{project}/processes/{name}/pods", h.require(h.PodsFragment))
+	mux.HandleFunc("GET /projects/{project}/processes/{name}/events", h.require(h.DetailEventsFragment))
 }
 
 func (h *Handler) require(next http.HandlerFunc) http.HandlerFunc {
@@ -47,12 +47,20 @@ func (h *Handler) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 // ProcessViewModel wraps models.Process with views-specific fields like restarts.
 type ProcessViewModel struct {
 	models.Process
+	Project  string
 	Restarts int32
 }
 
-// List shows all processes.
+// List shows all processes for a project.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	processes, err := h.deps.Client.ListProcesses(r.Context(), h.deps.Namespace)
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
+	processes, err := h.deps.Client.ListProcesses(r.Context(), namespace)
 	if err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
@@ -60,7 +68,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	viewModels := make([]ProcessViewModel, len(processes))
 	for i, p := range processes {
 		p.PublicURL = h.deps.PublicURL(p.Name)
-		pods, err := h.deps.Client.ListPods(r.Context(), h.deps.Namespace, p.Name)
+		pods, err := h.deps.Client.ListPods(r.Context(), namespace, p.Name)
 		var restarts int32
 		if err == nil {
 			for _, pod := range pods {
@@ -71,13 +79,15 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		}
 		viewModels[i] = ProcessViewModel{
 			Process:  p,
+			Project:  projectName,
 			Restarts: restarts,
 		}
 	}
 	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/list", map[string]any{
 		"Title":     "Processes",
 		"Nav":       "processes",
-		"Namespace": h.deps.Namespace,
+		"Project":   projectName,
+		"Namespace": namespace,
 		"Domain":    h.deps.Domain,
 		"Processes": viewModels,
 	})
@@ -85,16 +95,31 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 // NewForm shows the create form.
 func (h *Handler) NewForm(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/form", map[string]any{
 		"Title":     "New Process",
 		"Nav":       "processes",
-		"Namespace": h.deps.Namespace,
+		"Project":   projectName,
+		"Namespace": namespace,
 		"Domain":    h.deps.Domain,
 	})
 }
 
 // Create handles process creation.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		handlers.RenderError(w, err, http.StatusBadRequest)
 		return
@@ -102,7 +127,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	p := models.Process{
 		Name:        strings.TrimSpace(r.FormValue("name")),
 		Image:       strings.TrimSpace(r.FormValue("image")),
-		Namespace:   h.deps.Namespace,
+		Namespace:   namespace,
 		Arch:        r.FormValue("arch"),
 		MemoryLimit: r.FormValue("memoryLimit"),
 		Env:         parseEnv(r.FormValue("env")),
@@ -128,13 +153,20 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.PublicURL = h.deps.PublicURL(p.Name)
-	handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/row", ProcessViewModel{Process: p, Restarts: 0})
+	handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/row", ProcessViewModel{Process: p, Project: projectName, Restarts: 0})
 }
 
 // Delete removes a process.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	name := r.PathValue("name")
-	if err := h.deps.Client.DeleteProcess(r.Context(), h.deps.Namespace, name); err != nil {
+	if err := h.deps.Client.DeleteProcess(r.Context(), namespace, name); err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
@@ -143,24 +175,39 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 
 // Logs returns container logs page.
 func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	name := r.PathValue("name")
-	logs, err := h.deps.Client.GetPodLogs(r.Context(), h.deps.Namespace, name)
+	logs, err := h.deps.Client.GetPodLogs(r.Context(), namespace, name)
 	if err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
 	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/logs", map[string]any{
-		"Title": name + " Logs",
-		"Nav":   "processes",
-		"Name":  name,
-		"Logs":  logs,
+		"Title":   name + " Logs",
+		"Nav":     "processes",
+		"Project": projectName,
+		"Name":    name,
+		"Logs":    logs,
 	})
 }
 
 // LogStream returns HTML-escaped log text for HTMX polling.
 func (h *Handler) LogStream(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	name := r.PathValue("name")
-	logs, err := h.deps.Client.GetPodLogs(r.Context(), h.deps.Namespace, name)
+	logs, err := h.deps.Client.GetPodLogs(r.Context(), namespace, name)
 	if err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
@@ -171,8 +218,18 @@ func (h *Handler) LogStream(w http.ResponseWriter, r *http.Request) {
 
 // Status returns a status badge fragment for polling.
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/status", map[string]any{
+			"Status": "error",
+			"Label":  "Error",
+		})
+		return
+	}
+
 	name := r.PathValue("name")
-	p, err := h.deps.Client.GetProcess(r.Context(), h.deps.Namespace, name)
+	p, err := h.deps.Client.GetProcess(r.Context(), namespace, name)
 	if err != nil {
 		handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/status", map[string]any{
 			"Status": "error",
@@ -208,8 +265,15 @@ func parseEnv(input string) map[string]string {
 
 // Detail renders the process detail page.
 func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	name := r.PathValue("name")
-	detail, err := h.deps.Client.GetProcessDetail(r.Context(), h.deps.Namespace, name)
+	detail, err := h.deps.Client.GetProcessDetail(r.Context(), namespace, name)
 	if err != nil {
 		if err == models.ErrProcessNotFound {
 			handlers.RenderError(w, err, http.StatusNotFound)
@@ -218,7 +282,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	logs, err := h.deps.Client.GetPodLogs(r.Context(), h.deps.Namespace, name)
+	logs, err := h.deps.Client.GetPodLogs(r.Context(), namespace, name)
 	if err != nil {
 		slog.Warn("failed to fetch pod logs", "process", name, "error", err)
 		logs = "No logs available or no pods running."
@@ -229,6 +293,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 	handlers.Render(h.deps.Tmpl, w, r, "pages/processes/detail", map[string]any{
 		"Title":     name + " - Process Detail",
 		"Nav":       "processes",
+		"Project":   projectName,
 		"Detail":    detail,
 		"PublicURL": publicURL,
 		"Logs":      logs,
@@ -237,13 +302,21 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 
 // PodsFragment renders the pods fragment for polling.
 func (h *Handler) PodsFragment(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	name := r.PathValue("name")
-	pods, err := h.deps.Client.ListPods(r.Context(), h.deps.Namespace, name)
+	pods, err := h.deps.Client.ListPods(r.Context(), namespace, name)
 	if err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
 	handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/pods-fragment", map[string]any{
+		"Project": projectName,
 		"Detail": map[string]any{
 			"Pods": pods,
 		},
@@ -252,13 +325,20 @@ func (h *Handler) PodsFragment(w http.ResponseWriter, r *http.Request) {
 
 // DetailEventsFragment renders the events fragment for polling.
 func (h *Handler) DetailEventsFragment(w http.ResponseWriter, r *http.Request) {
+	projectName := r.PathValue("project")
+	namespace, err := h.deps.ProjectNamespace(r.Context(), projectName)
+	if err != nil {
+		handlers.RenderError(w, err, http.StatusNotFound)
+		return
+	}
+
 	name := r.PathValue("name")
-	allEvents, err := h.deps.Client.ListEvents(r.Context(), h.deps.Namespace, 0)
+	allEvents, err := h.deps.Client.ListEvents(r.Context(), namespace, 0)
 	if err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	processes, err := h.deps.Client.ListProcesses(r.Context(), h.deps.Namespace)
+	processes, err := h.deps.Client.ListProcesses(r.Context(), namespace)
 	if err != nil {
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
@@ -269,6 +349,7 @@ func (h *Handler) DetailEventsFragment(w http.ResponseWriter, r *http.Request) {
 	}
 	events := k8s.FilterEventsForProcess(allEvents, name, allNames)
 	handlers.RenderFragment(h.deps.Tmpl, w, "pages/processes/detail-events-fragment", map[string]any{
+		"Project": projectName,
 		"Detail": map[string]any{
 			"Events": events,
 		},

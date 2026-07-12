@@ -49,7 +49,7 @@
     }
 </style>
 
-{{template "components/page-header" dict "Title" (print .Detail.Process.Name " Detail") "Action" "Back to List" "Href" "/processes"}}
+{{template "components/page-header" dict "Title" (print .Detail.Process.Name " Detail") "Action" "Back to List" "Href" (print "/projects/" .Project "/processes")}}
 
 <div class="card">
     <h3>Overview</h3>
@@ -83,14 +83,14 @@
 
 <div class="card">
     <h3>Pods</h3>
-    <div id="pods-table-container" hx-get="/processes/{{.Detail.Process.Name}}/pods" hx-trigger="every 10s" hx-swap="innerHTML">
+    <div id="pods-table-container" hx-get="/projects/{{.Project}}/processes/{{.Detail.Process.Name}}/pods" hx-trigger="every 10s" hx-swap="innerHTML">
         {{template "pages/processes/pods-fragment" .}}
     </div>
 </div>
 
 <div class="card">
     <h3>Events</h3>
-    <div id="events-table-container" hx-get="/processes/{{.Detail.Process.Name}}/events" hx-trigger="every 15s" hx-swap="innerHTML">
+    <div id="events-table-container" hx-get="/projects/{{.Project}}/processes/{{.Detail.Process.Name}}/events" hx-trigger="every 15s" hx-swap="innerHTML">
         {{template "pages/processes/detail-events-fragment" .}}
     </div>
 </div>
@@ -98,7 +98,7 @@
 <div class="card">
     <h3>Logs</h3>
     <div class="logs-container">
-        <pre id="process-logs" hx-get="/processes/{{.Detail.Process.Name}}/logs/stream" hx-trigger="every 2s" hx-swap="innerHTML" class="logs-stream">{{.Logs}}</pre>
+        <pre id="process-logs" hx-get="/projects/{{.Project}}/processes/{{.Detail.Process.Name}}/logs/stream" hx-trigger="every 2s" hx-swap="innerHTML" class="logs-stream">{{.Logs}}</pre>
     </div>
 </div>
 {{end}}

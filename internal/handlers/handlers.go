@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ var AuthHostWithPort string
 // AuthStore abstracts auth/shared persistence for handler testing.
 type AuthStore interface {
 	CreateProject(ctx context.Context, name, namespace, domainHost, projType string, dbRequired, authEnabled bool) (*auth.Project, error)
+	GetProjectByName(ctx context.Context, name string) (*auth.Project, error)
 	ListProjects(ctx context.Context) ([]auth.Project, error)
 	ListUsers(ctx context.Context) ([]auth.User, error)
 	ListAuditEvents(ctx context.Context, limit int) ([]auth.AuditEvent, error)
@@ -33,11 +35,48 @@ type Deps struct {
 	Provisioner interface {
 		ListDatabases(ctx context.Context) ([]string, error)
 	}
-	Namespace        string
 	Domain           string
 	IngressHTTPSPort int32
 	AuthMW           *auth.Middleware
 	Tmpl             *template.Template
+}
+
+// ProjectNamespace resolves the Kubernetes namespace for a project by name.
+// It returns an error if the auth store is unavailable or the project is unknown.
+func (d *Deps) ProjectNamespace(ctx context.Context, projectName string) (string, error) {
+	if d.AuthStore == nil {
+		return "", fmt.Errorf("auth store not configured")
+	}
+	p, err := d.AuthStore.GetProjectByName(ctx, projectName)
+	if err != nil {
+		return "", fmt.Errorf("lookup project: %w", err)
+	}
+	if p == nil {
+		return "", fmt.Errorf("project %q not found", projectName)
+	}
+	return p.Namespace, nil
+}
+
+// ManagedNamespaces returns the distinct Kubernetes namespaces for all registered projects.
+func (d *Deps) ManagedNamespaces(ctx context.Context) ([]string, error) {
+	if d.AuthStore == nil {
+		return nil, fmt.Errorf("auth store not configured")
+	}
+	projects, err := d.AuthStore.ListProjects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	seen := make(map[string]struct{}, len(projects))
+	namespaces := make([]string, 0, len(projects))
+	for _, p := range projects {
+		if _, ok := seen[p.Namespace]; ok {
+			continue
+		}
+		seen[p.Namespace] = struct{}{}
+		namespaces = append(namespaces, p.Namespace)
+	}
+	sort.Strings(namespaces)
+	return namespaces, nil
 }
 
 // PublicURL returns the external HTTPS URL for a process name.

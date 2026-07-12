@@ -24,7 +24,6 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
-	namespace := flag.String("namespace", "nacfson-personal", "namespace to manage")
 	domain := flag.String("domain", "nacfson.cloud", "base domain for processes")
 	authServiceURL := flag.String("auth-service-url", "http://auth-service.nacfson-auth.svc.cluster.local:8080", "auth service URL")
 	authInternalToken := flag.String("auth-internal-token", os.Getenv("AUTH_INTERNAL_TOKEN"), "auth internal token")
@@ -64,7 +63,6 @@ func main() {
 
 	deps := handlers.Deps{
 		Client:           client,
-		Namespace:        *namespace,
 		Domain:           *domain,
 		Tmpl:             tmpl,
 		IngressHTTPSPort: int32(*ingressHTTPSPort),

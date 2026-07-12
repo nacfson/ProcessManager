@@ -26,6 +26,15 @@ func (m *mockAuthStore) CreateProject(ctx context.Context, name, namespace, doma
 	return nil, nil
 }
 
+func (m *mockAuthStore) GetProjectByName(ctx context.Context, name string) (*auth.Project, error) {
+	for _, p := range m.projects {
+		if p.Name == name {
+			return &p, nil
+		}
+	}
+	return nil, nil
+}
+
 func (m *mockAuthStore) ListProjects(ctx context.Context) ([]auth.Project, error) {
 	return m.projects, m.err
 }
@@ -52,7 +61,7 @@ func TestHomeRendersNodes(t *testing.T) {
 
 	deps := handlers.Deps{
 		Client:    fc,
-		Namespace: "test-ns",
+		AuthStore: &mockAuthStore{projects: []auth.Project{{Name: "test-ns", Namespace: "test-ns"}}},
 		Domain:    "test.local",
 		Tmpl:      mustTemplate(t),
 	}
@@ -116,7 +125,7 @@ func TestHomeRendersProcessHealth(t *testing.T) {
 		Total:     1,
 	}, "test.local")
 	fc.Pods = map[string][]k8s.PodInfo{
-		"proc-restarts-degraded": {
+		"test-ns/proc-restarts-degraded": {
 			{
 				Name:     "proc-restarts-degraded-pod-1",
 				Phase:    "Running",
@@ -127,7 +136,7 @@ func TestHomeRendersProcessHealth(t *testing.T) {
 
 	deps := handlers.Deps{
 		Client:    fc,
-		Namespace: "test-ns",
+		AuthStore: &mockAuthStore{projects: []auth.Project{{Name: "test-ns", Namespace: "test-ns"}}},
 		Domain:    "test.local",
 		Tmpl:      mustTemplate(t),
 	}
@@ -161,7 +170,7 @@ func TestHomeRendersProcessHealth(t *testing.T) {
 	}
 
 	// Verify that proc-restarts-degraded has degraded status
-	idx := strings.Index(body, "/processes/proc-restarts-degraded/detail")
+	idx := strings.Index(body, "/projects/test-ns/processes/proc-restarts-degraded/detail")
 	if idx == -1 {
 		t.Errorf("expected proc-restarts-degraded detail link to be present")
 	} else {
@@ -181,6 +190,7 @@ func TestHomeRendersEventsFragment(t *testing.T) {
 
 	fc.Events = []k8s.EventInfo{
 		{
+			Namespace:      "test-ns",
 			Type:           "Warning",
 			Reason:         "BackOff",
 			Message:        "Back-off restarting failed container",
@@ -191,7 +201,7 @@ func TestHomeRendersEventsFragment(t *testing.T) {
 
 	deps := handlers.Deps{
 		Client:    fc,
-		Namespace: "test-ns",
+		AuthStore: &mockAuthStore{projects: []auth.Project{{Name: "test-ns", Namespace: "test-ns"}}},
 		Domain:    "test.local",
 		Tmpl:      mustTemplate(t),
 	}
@@ -237,6 +247,7 @@ func TestHomeRenders(t *testing.T) {
 
 	fc.Events = []k8s.EventInfo{
 		{
+			Namespace:      "test-ns",
 			Type:           "Warning",
 			Reason:         "FailedMount",
 			Message:        "MountVolume.SetUp failed",
@@ -248,16 +259,15 @@ func TestHomeRenders(t *testing.T) {
 	// Mock AuthStore with 3 projects
 	as := &mockAuthStore{
 		projects: []auth.Project{
-			{ID: "1", Name: "Proj 1"},
-			{ID: "2", Name: "Proj 2"},
-			{ID: "3", Name: "Proj 3"},
+			{ID: "1", Name: "Proj 1", Namespace: "test-ns"},
+			{ID: "2", Name: "Proj 2", Namespace: "test-ns"},
+			{ID: "3", Name: "Proj 3", Namespace: "test-ns"},
 		},
 	}
 
 	deps := handlers.Deps{
 		Client:    fc,
 		AuthStore: as,
-		Namespace: "test-ns",
 		Domain:    "test.local",
 		Tmpl:      mustTemplate(t),
 	}
@@ -290,7 +300,7 @@ func TestHomeSurfacesListError(t *testing.T) {
 	fc := &fake.Client{ErrListProcesses: errors.New("list failed")}
 	deps := handlers.Deps{
 		Client:    fc,
-		Namespace: "test-ns",
+		AuthStore: &mockAuthStore{projects: []auth.Project{{Name: "test-ns", Namespace: "test-ns"}}},
 		Domain:    "test.local",
 		Tmpl:      mustTemplate(t),
 	}

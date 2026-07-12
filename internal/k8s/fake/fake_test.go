@@ -32,7 +32,7 @@ func TestListNodesReturnsConfiguredNodes(t *testing.T) {
 func TestListPodsReturnsFilteredPods(t *testing.T) {
 	fc := &Client{
 		Pods: map[string][]k8s.PodInfo{
-			"app": {
+			"default/app": {
 				{Name: "app-abc", Phase: "Running", Restarts: 0, CreatedAt: time.Now()},
 				{Name: "app-def", Phase: "Running", Restarts: 2, LastTermReason: "OOMKilled", CreatedAt: time.Now()},
 			},
@@ -61,12 +61,28 @@ func TestListPodsReturnsEmptyForUnknownProcess(t *testing.T) {
 	}
 }
 
+func TestListPodsFiltersByNamespace(t *testing.T) {
+	fc := &Client{
+		Pods: map[string][]k8s.PodInfo{
+			"ns-a/app": {{Name: "app-a", Phase: "Running", CreatedAt: time.Now()}},
+			"ns-b/app": {{Name: "app-b", Phase: "Running", CreatedAt: time.Now()}},
+		},
+	}
+	pods, err := fc.ListPods(context.Background(), "ns-a", "app")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pods) != 1 || pods[0].Name != "app-a" {
+		t.Errorf("expected 1 pod app-a in ns-a, got %+v", pods)
+	}
+}
+
 func TestListEventsReturnsConfiguredEvents(t *testing.T) {
 	now := time.Now()
 	fc := &Client{
 		Events: []k8s.EventInfo{
-			{Type: "Warning", Reason: "BackOff", Message: "Back-off restarting", LastTimestamp: now},
-			{Type: "Normal", Reason: "Pulled", Message: "Pulled image", LastTimestamp: now},
+			{Namespace: "default", Type: "Warning", Reason: "BackOff", Message: "Back-off restarting", LastTimestamp: now},
+			{Namespace: "default", Type: "Normal", Reason: "Pulled", Message: "Pulled image", LastTimestamp: now},
 		},
 	}
 	events, err := fc.ListEvents(context.Background(), "default", 10)
@@ -81,9 +97,9 @@ func TestListEventsReturnsConfiguredEvents(t *testing.T) {
 func TestListEventsRespectsLimit(t *testing.T) {
 	fc := &Client{
 		Events: []k8s.EventInfo{
-			{Type: "Warning", Reason: "A"},
-			{Type: "Warning", Reason: "B"},
-			{Type: "Warning", Reason: "C"},
+			{Namespace: "default", Type: "Warning", Reason: "A"},
+			{Namespace: "default", Type: "Warning", Reason: "B"},
+			{Namespace: "default", Type: "Warning", Reason: "C"},
 		},
 	}
 	events, err := fc.ListEvents(context.Background(), "default", 2)
@@ -95,14 +111,45 @@ func TestListEventsRespectsLimit(t *testing.T) {
 	}
 }
 
+func TestListEventsFiltersByNamespace(t *testing.T) {
+	fc := &Client{
+		Events: []k8s.EventInfo{
+			{Namespace: "ns-a", Type: "Warning", Reason: "A"},
+			{Namespace: "ns-b", Type: "Warning", Reason: "B"},
+		},
+	}
+	events, err := fc.ListEvents(context.Background(), "ns-a", 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 1 || events[0].Reason != "A" {
+		t.Errorf("expected 1 event A in ns-a, got %+v", events)
+	}
+}
+
+func TestListProcessesFiltersByNamespace(t *testing.T) {
+	fc := &Client{}
+	ctx := context.Background()
+	_ = fc.CreateProcess(ctx, models.Process{Name: "app", Namespace: "ns-a"}, "test.local")
+	_ = fc.CreateProcess(ctx, models.Process{Name: "app", Namespace: "ns-b"}, "test.local")
+
+	procs, err := fc.ListProcesses(ctx, "ns-a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(procs) != 1 || procs[0].Namespace != "ns-a" {
+		t.Errorf("expected 1 process in ns-a, got %+v", procs)
+	}
+}
+
 func TestGetProcessDetailAggregates(t *testing.T) {
 	fc := &Client{
 		Pods: map[string][]k8s.PodInfo{
-			"web": {{Name: "web-abc", Phase: "Running", Restarts: 1, CreatedAt: time.Now()}},
+			"default/web": {{Name: "web-abc", Phase: "Running", Restarts: 1, CreatedAt: time.Now()}},
 		},
 		Events: []k8s.EventInfo{
-			{Type: "Warning", Reason: "BackOff", InvolvedObject: "pod/web-abc"},
-			{Type: "Normal", Reason: "Pulled", InvolvedObject: "pod/other-xyz"},
+			{Namespace: "default", Type: "Warning", Reason: "BackOff", InvolvedObject: "pod/web-abc"},
+			{Namespace: "default", Type: "Normal", Reason: "Pulled", InvolvedObject: "pod/other-xyz"},
 		},
 	}
 	fc.CreateProcess(context.Background(), models.Process{Name: "web", Image: "nginx", Namespace: "default"}, "test.local")

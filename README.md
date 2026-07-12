@@ -151,7 +151,11 @@ Because `local-path` stores data on the node disk (`/opt/local-path-provisioner/
 
 ## Registering a Process
 
-Use the dashboard form:
+Processes are scoped to a project and created in the project's configured namespace. From the dashboard:
+
+1. Go to **Projects** and create a project (e.g., name `portfolio`, namespace `portfolio-web`).
+2. Open the project's process list at `/projects/portfolio/processes`.
+3. Click **New Process** and fill in the form:
 
 | Field | Example |
 |-------|---------|
@@ -162,7 +166,9 @@ Use the dashboard form:
 | Arch | `arm64` (for `rlLocal`) or `amd64` (for `zlUbuntu`) |
 | Memory Limit | `256Mi` |
 
-The manager creates a Deployment, Service, and Ingress with TLS and auth annotations.
+The manager creates a Deployment, Service, and Ingress with TLS and auth annotations in the project's namespace.
+
+The dashboard no longer uses a single global `-namespace` flag. Each project's `namespace` field in the auth DB determines where its processes run.
 
 ## Adding a Worker Later
 

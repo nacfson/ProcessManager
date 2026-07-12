@@ -201,6 +201,59 @@ func (s *HTTPAuthStore) ListProjects(ctx context.Context) ([]Project, error) {
 	return projects, nil
 }
 
+func (s *HTTPAuthStore) GetProjectByName(ctx context.Context, name string) (*Project, error) {
+	u := fmt.Sprintf("%s/api/internal/projects/%s", s.baseURL, url.PathEscape(name))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+s.token)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var errResp map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
+		if msg, ok := errResp["error"]; ok {
+			return nil, fmt.Errorf("auth service error (status %d): %s", resp.StatusCode, msg)
+		}
+		return nil, fmt.Errorf("auth service returned status %d", resp.StatusCode)
+	}
+
+	var pResp struct {
+		ID          string    `json:"id"`
+		Name        string    `json:"name"`
+		Namespace   string    `json:"namespace"`
+		DomainHost  string    `json:"domain_host"`
+		Type        string    `json:"type"`
+		DBRequired  bool      `json:"db_required"`
+		AuthEnabled bool      `json:"auth_enabled"`
+		CreatedAt   time.Time `json:"created_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pResp); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return &Project{
+		ID:          pResp.ID,
+		Name:        pResp.Name,
+		Namespace:   pResp.Namespace,
+		DomainHost:  pResp.DomainHost,
+		Type:        pResp.Type,
+		DBRequired:  pResp.DBRequired,
+		AuthEnabled: pResp.AuthEnabled,
+		CreatedAt:   pResp.CreatedAt,
+	}, nil
+}
+
 func (s *HTTPAuthStore) ListUsers(ctx context.Context) ([]User, error) {
 	u := s.baseURL + "/api/internal/users"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

@@ -155,6 +155,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Internal APIs
 	mux.Handle("GET /api/internal/session", h.verifyInternalToken(http.HandlerFunc(h.InternalSession)))
 	mux.Handle("GET /api/internal/projects", h.verifyInternalToken(http.HandlerFunc(h.InternalListProjects)))
+	mux.Handle("GET /api/internal/projects/{name}", h.verifyInternalToken(http.HandlerFunc(h.InternalGetProject)))
 	mux.Handle("POST /api/internal/projects", h.verifyInternalToken(http.HandlerFunc(h.InternalCreateProject)))
 	mux.Handle("GET /api/internal/users", h.verifyInternalToken(http.HandlerFunc(h.InternalListUsers)))
 	mux.Handle("POST /api/internal/audit-events", h.verifyInternalToken(http.HandlerFunc(h.InternalLogAudit)))
@@ -921,6 +922,36 @@ func (h *Handler) InternalListProjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeAPIJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) InternalGetProject(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing project name")
+		return
+	}
+
+	p, err := h.store.GetProjectByName(r.Context(), name)
+	if err != nil {
+		log.Printf("InternalGetProject GetProjectByName error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if p == nil {
+		writeAPIError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	writeAPIJSON(w, http.StatusOK, internalProjectResponse{
+		ID:          p.ID,
+		Name:        p.Name,
+		Namespace:   p.Namespace,
+		DomainHost:  p.DomainHost,
+		Type:        p.Type,
+		DBRequired:  p.DBRequired,
+		AuthEnabled: p.AuthEnabled,
+		CreatedAt:   p.CreatedAt,
+	})
 }
 
 func (h *Handler) InternalCreateProject(w http.ResponseWriter, r *http.Request) {

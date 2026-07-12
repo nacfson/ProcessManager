@@ -22,9 +22,8 @@ func adminRequest(method, target string, body io.Reader) *http.Request {
 
 func TestListRenders(t *testing.T) {
 	deps := handlers.Deps{
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
+		Domain: "test.local",
+		Tmpl:   mustTemplate(t),
 	}
 	h := New(deps)
 	mux := http.NewServeMux()

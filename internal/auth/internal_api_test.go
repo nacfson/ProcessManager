@@ -176,6 +176,31 @@ func TestInternalAPI(t *testing.T) {
 		}
 	})
 
+	// 3b. GET /api/internal/projects/{name}
+	t.Run("GET /api/internal/projects/{name}", func(t *testing.T) {
+		// Missing/unknown project returns 404
+		rec := sendReq(http.MethodGet, "/api/internal/projects/nonexistent", nil, internalToken, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("expected 404 for unknown project, got %d", rec.Code)
+		}
+
+		// Success
+		rec = sendReq(http.MethodGet, "/api/internal/projects/test-project", nil, internalToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+		if resp["name"] != "test-project" {
+			t.Errorf("expected project name test-project, got %v", resp["name"])
+		}
+		if resp["namespace"] != "test-ns" {
+			t.Errorf("expected namespace test-ns, got %v", resp["namespace"])
+		}
+	})
+
 	// 4. GET /api/internal/users
 	t.Run("GET /api/internal/users", func(t *testing.T) {
 		// Unauthorized

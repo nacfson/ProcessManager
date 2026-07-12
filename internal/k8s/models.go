@@ -27,6 +27,7 @@ type NodeCondition struct {
 // PodInfo represents a pod's runtime status.
 type PodInfo struct {
 	Name           string    `json:"name"`
+	Namespace      string    `json:"namespace"`
 	Phase          string    `json:"phase"` // Running, Pending, Failed, Succeeded
 	Restarts       int32     `json:"restarts"`
 	LastTermReason string    `json:"lastTermReason"` // OOMKilled, Error, etc.
@@ -39,6 +40,7 @@ type PodInfo struct {
 
 // EventInfo represents a Kubernetes event.
 type EventInfo struct {
+	Namespace      string    `json:"namespace"`
 	Type           string    `json:"type"` // Normal, Warning
 	Reason         string    `json:"reason"`
 	Message        string    `json:"message"`

@@ -23,9 +23,8 @@ func adminRequest(method, target string, body io.Reader) *http.Request {
 
 func TestListRenders(t *testing.T) {
 	deps := handlers.Deps{
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
+		Domain: "test.local",
+		Tmpl:   mustTemplate(t),
 	}
 	h := New(deps)
 	mux := http.NewServeMux()
@@ -43,9 +42,8 @@ func TestListRenders(t *testing.T) {
 
 func TestCreateValidationError(t *testing.T) {
 	deps := handlers.Deps{
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
+		Domain: "test.local",
+		Tmpl:   mustTemplate(t),
 	}
 	h := New(deps)
 	mux := http.NewServeMux()
@@ -68,9 +66,8 @@ func TestCreateValidationError(t *testing.T) {
 
 func TestCreateRequiresAuthStore(t *testing.T) {
 	deps := handlers.Deps{
-		Namespace: "test-ns",
-		Domain:    "test.local",
-		Tmpl:      mustTemplate(t),
+		Domain: "test.local",
+		Tmpl:   mustTemplate(t),
 	}
 	h := New(deps)
 	mux := http.NewServeMux()
@@ -93,7 +90,7 @@ func TestCreateRequiresAuthStore(t *testing.T) {
 }
 
 type fakeAuthStore struct {
-	created       *auth.Project
+	created         *auth.Project
 	ErrListProjects error
 }
 
@@ -109,6 +106,10 @@ func (s *fakeAuthStore) CreateProject(_ context.Context, name, namespace, domain
 	}
 	s.created = p
 	return p, nil
+}
+
+func (s *fakeAuthStore) GetProjectByName(_ context.Context, _ string) (*auth.Project, error) {
+	return nil, nil
 }
 
 func (s *fakeAuthStore) ListProjects(_ context.Context) ([]auth.Project, error) {
@@ -132,7 +133,6 @@ func (s *fakeAuthStore) ListAuditEvents(_ context.Context, _ int) ([]auth.AuditE
 func TestListSurfacesError(t *testing.T) {
 	store := &fakeAuthStore{ErrListProjects: errors.New("list failed")}
 	deps := handlers.Deps{
-		Namespace: "test-ns",
 		Domain:    "test.local",
 		AuthStore: store,
 		Tmpl:      mustTemplate(t),
@@ -157,7 +157,6 @@ func TestListSurfacesError(t *testing.T) {
 func TestListEmptyStateHasDeleteTarget(t *testing.T) {
 	store := &fakeAuthStore{}
 	deps := handlers.Deps{
-		Namespace: "test-ns",
 		Domain:    "test.local",
 		AuthStore: store,
 		Tmpl:      mustTemplate(t),
@@ -183,7 +182,6 @@ func TestListEmptyStateHasDeleteTarget(t *testing.T) {
 func TestCreateHappyPath(t *testing.T) {
 	store := &fakeAuthStore{}
 	deps := handlers.Deps{
-		Namespace: "test-ns",
 		Domain:    "test.local",
 		AuthStore: store,
 		Tmpl:      mustTemplate(t),

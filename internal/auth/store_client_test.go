@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -132,6 +133,27 @@ func TestHTTPAuthStore(t *testing.T) {
 			}
 
 		default:
+			if strings.HasPrefix(r.URL.Path, "/api/internal/projects/") {
+				name := strings.TrimPrefix(r.URL.Path, "/api/internal/projects/")
+				if name == "missing" {
+					w.WriteHeader(http.StatusNotFound)
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+					return
+				}
+				resp := map[string]any{
+					"id":           "proj-123",
+					"name":         name,
+					"namespace":    "ns-1",
+					"domain_host":  "domain-1",
+					"type":         "simple",
+					"db_required":  false,
+					"auth_enabled": true,
+					"created_at":   time.Now().Format(time.RFC3339Nano),
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(resp)
+				return
+			}
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -198,6 +220,29 @@ func TestHTTPAuthStore(t *testing.T) {
 		}
 		if projects[0].Name != "project-1" {
 			t.Errorf("expected project name project-1, got %s", projects[0].Name)
+		}
+	})
+
+	t.Run("GetProjectByName Success", func(t *testing.T) {
+		p, err := store.GetProjectByName(ctx, "project-1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p == nil {
+			t.Fatalf("expected project, got nil")
+		}
+		if p.Name != "project-1" || p.Namespace != "ns-1" {
+			t.Errorf("unexpected project fields: %+v", p)
+		}
+	})
+
+	t.Run("GetProjectByName NotFound", func(t *testing.T) {
+		p, err := store.GetProjectByName(ctx, "missing")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p != nil {
+			t.Errorf("expected nil project, got %+v", p)
 		}
 	})
 

@@ -4,7 +4,7 @@
 {{template "components/page-header" dict "Title" "Settings"}}
 <div class="card">
     <table>
-        <tr><td>Managed Namespace</td><td>{{.Namespace}}</td></tr>
+        <tr><td>Managed Namespaces</td><td>{{if .Namespaces}}{{range .Namespaces}}{{.}} <br>{{end}}{{else}}None{{end}}</td></tr>
         <tr><td>Base Domain</td><td>{{.Domain}}</td></tr>
     </table>
 </div>

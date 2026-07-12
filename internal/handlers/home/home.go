@@ -4,14 +4,18 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sort"
 
 	"processmanager/internal/handlers"
+	"processmanager/internal/k8s"
 	"processmanager/internal/models"
 )
 
 // HealthItem represents health status for a process.
 type HealthItem struct {
 	Name         string
+	Project      string
+	Namespace    string
 	Ready        int32
 	Total        int32
 	Restarts     int32
@@ -46,20 +50,21 @@ func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 		errMsg = "Failed to load dashboard data"
 	}
 
-	processes, err := h.deps.Client.ListProcesses(ctx, h.deps.Namespace)
+	processes, err := h.listAllProcesses(ctx)
 	var healthItems []HealthItem
 	if err != nil {
 		slog.Error("list processes failed", "error", err)
 		errMsg = "Failed to load dashboard data"
 	} else {
-		healthItems, err = h.buildHealthItems(ctx, processes)
+		projectMap := h.projectNamespaceMap(ctx)
+		healthItems, err = h.buildHealthItems(ctx, processes, projectMap)
 		if err != nil {
 			slog.Error("build health items failed", "error", err)
 			errMsg = "Failed to load dashboard data"
 		}
 	}
 
-	events, err := h.deps.Client.ListEvents(ctx, h.deps.Namespace, 20)
+	events, err := h.listAllEvents(ctx, 20)
 	if err != nil {
 		slog.Error("list events failed", "error", err)
 		errMsg = "Failed to load dashboard data"
@@ -78,7 +83,6 @@ func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 	handlers.Render(h.deps.Tmpl, w, r, "pages/home/home", map[string]any{
 		"Title":        "Dashboard",
 		"Nav":          "home",
-		"Namespace":    h.deps.Namespace,
 		"Domain":       h.deps.Domain,
 		"Nodes":        nodes,
 		"Processes":    healthItems,
@@ -91,13 +95,14 @@ func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 // Health renders the health fragment.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	processes, err := h.deps.Client.ListProcesses(ctx, h.deps.Namespace)
+	processes, err := h.listAllProcesses(ctx)
 	if err != nil {
 		slog.Error("list processes failed", "error", err)
 		handlers.RenderError(w, err, http.StatusInternalServerError)
 		return
 	}
-	healthItems, err := h.buildHealthItems(ctx, processes)
+	projectMap := h.projectNamespaceMap(ctx)
+	healthItems, err := h.buildHealthItems(ctx, processes, projectMap)
 	if err != nil {
 		slog.Error("build health items failed", "error", err)
 		handlers.RenderError(w, err, http.StatusInternalServerError)
@@ -111,7 +116,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 // Events renders the events fragment.
 func (h *Handler) Events(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	events, err := h.deps.Client.ListEvents(ctx, h.deps.Namespace, 20)
+	events, err := h.listAllEvents(ctx, 20)
 	if err != nil {
 		slog.Error("list events failed", "error", err)
 		handlers.RenderError(w, err, http.StatusInternalServerError)
@@ -122,11 +127,75 @@ func (h *Handler) Events(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// listAllProcesses returns processes across all managed project namespaces.
+func (h *Handler) listAllProcesses(ctx context.Context) ([]models.Process, error) {
+	namespaces, err := h.deps.ManagedNamespaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var all []models.Process
+	for _, ns := range namespaces {
+		procs, err := h.deps.Client.ListProcesses(ctx, ns)
+		if err != nil {
+			return nil, err
+		}
+		for i := range procs {
+			procs[i].Namespace = ns
+		}
+		all = append(all, procs...)
+	}
+	return all, nil
+}
+
+// listAllEvents returns recent events across all managed project namespaces.
+func (h *Handler) listAllEvents(ctx context.Context, limit int) ([]k8s.EventInfo, error) {
+	namespaces, err := h.deps.ManagedNamespaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var all []k8s.EventInfo
+	for _, ns := range namespaces {
+		events, err := h.deps.Client.ListEvents(ctx, ns, 0)
+		if err != nil {
+			return nil, err
+		}
+		for i := range events {
+			events[i].Namespace = ns
+		}
+		all = append(all, events...)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].LastTimestamp.After(all[j].LastTimestamp)
+	})
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	return all, nil
+}
+
+// projectNamespaceMap returns a map from namespace to the first project name using it.
+func (h *Handler) projectNamespaceMap(ctx context.Context) map[string]string {
+	m := make(map[string]string)
+	if h.deps.AuthStore == nil {
+		return m
+	}
+	projects, err := h.deps.AuthStore.ListProjects(ctx)
+	if err != nil {
+		return m
+	}
+	for _, p := range projects {
+		if _, ok := m[p.Namespace]; !ok {
+			m[p.Namespace] = p.Name
+		}
+	}
+	return m
+}
+
 // buildHealthItems aggregates pod details per process.
-func (h *Handler) buildHealthItems(ctx context.Context, processes []models.Process) ([]HealthItem, error) {
+func (h *Handler) buildHealthItems(ctx context.Context, processes []models.Process, projectMap map[string]string) ([]HealthItem, error) {
 	healthItems := make([]HealthItem, 0, len(processes))
 	for _, p := range processes {
-		pods, err := h.deps.Client.ListPods(ctx, h.deps.Namespace, p.Name)
+		pods, err := h.deps.Client.ListPods(ctx, p.Namespace, p.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -145,6 +214,8 @@ func (h *Handler) buildHealthItems(ctx context.Context, processes []models.Proce
 
 		healthItems = append(healthItems, HealthItem{
 			Name:         p.Name,
+			Project:      projectMap[p.Namespace],
+			Namespace:    p.Namespace,
 			Ready:        p.Ready,
 			Total:        p.Total,
 			Restarts:     restarts,

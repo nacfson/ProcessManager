@@ -46,7 +46,6 @@ spec:
                   key: DATABASE_URL
                   optional: true
           args:
-            - -namespace=nacfson-personal
             - -domain=nacfson.cloud
           securityContext:
             allowPrivilegeEscalation: false

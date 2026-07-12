@@ -3,7 +3,7 @@
 {{define "pages/processes/form-content"}}
 {{template "components/page-header" dict "Title" "New Process"}}
 <div class="card">
-    <form hx-post="/processes" hx-target="#process-list" hx-swap="beforeend">
+    <form hx-post="/projects/{{.Project}}/processes" hx-target="#process-list" hx-swap="beforeend">
         <label for="name">Name</label>
         <input type="text" id="name" name="name" placeholder="portfolio" required>
 
