@@ -1,0 +1,15 @@
+{{if .Events}}
+<div class="warning-list" style="display: flex; flex-direction: column; gap: 8px;">
+    {{range .Events}}
+    <div class="warning-item">
+        <span style="font-size: 1.1rem; flex-shrink: 0; margin-top: 2px;">⚠️</span>
+        <span style="color: var(--muted); min-width: 64px; font-weight: 500;">{{timeago .LastTimestamp}}</span>
+        <span style="color: var(--text);">
+            <strong>{{.Namespace}} / {{.InvolvedObject}}</strong>: {{.Message}}
+        </span>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="empty">No warning events.</div>
+{{end}}

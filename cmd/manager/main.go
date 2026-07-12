@@ -14,6 +14,7 @@ import (
 	"processmanager/internal/handlers/audit"
 	"processmanager/internal/handlers/databases"
 	"processmanager/internal/handlers/home"
+	"processmanager/internal/handlers/observatory"
 	"processmanager/internal/handlers/processes"
 	"processmanager/internal/handlers/projects"
 	"processmanager/internal/handlers/settings"
@@ -92,6 +93,7 @@ func main() {
 	users.New(deps).RegisterRoutes(mux)
 	audit.New(deps).RegisterRoutes(mux)
 	settings.New(deps).RegisterRoutes(mux)
+	observatory.New(deps).RegisterRoutes(mux)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))

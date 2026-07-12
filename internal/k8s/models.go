@@ -63,3 +63,46 @@ func (d *ProcessDetail) TotalRestarts() int32 {
 	}
 	return total
 }
+
+// NodeMetrics represents resource usage for a node.
+type NodeMetrics struct {
+	Name     string `json:"name"`
+	CPUNano  int64  `json:"cpuNano"`  // CPU usage in nanocores
+	MemBytes int64  `json:"memBytes"` // Memory usage in bytes
+}
+
+// PodMetrics represents resource usage for a pod.
+type PodMetrics struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	CPUNano   int64  `json:"cpuNano"`
+	MemBytes  int64  `json:"memBytes"`
+}
+
+// IngressInfo represents an Ingress rule.
+type IngressInfo struct {
+	Name        string `json:"name"`
+	Namespace   string `json:"namespace"`
+	Host        string `json:"host"`
+	ServiceName string `json:"serviceName"`
+	ServicePort int32  `json:"servicePort"`
+}
+
+// ServiceInfo represents a Service and its endpoint readiness.
+type ServiceInfo struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	ReadyPods int32  `json:"readyPods"`
+	TotalPods int32  `json:"totalPods"`
+}
+
+// ServiceTopology represents how an Ingress connects to a Service and its Pods.
+type ServiceTopology struct {
+	IngressHost string `json:"ingressHost"`
+	ServiceName string `json:"serviceName"`
+	Namespace   string `json:"namespace"`
+	Project     string `json:"project"`
+	ReadyPods   int32  `json:"readyPods"`
+	TotalPods   int32  `json:"totalPods"`
+}
+

@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -46,6 +47,10 @@ type ClientInterface interface {
 	ListPods(ctx context.Context, namespace, processName string) ([]PodInfo, error)
 	ListEvents(ctx context.Context, namespace string, limit int) ([]EventInfo, error)
 	GetProcessDetail(ctx context.Context, namespace, name string) (*ProcessDetail, error)
+	GetNodeMetrics(ctx context.Context) ([]NodeMetrics, error)
+	GetPodMetrics(ctx context.Context, namespace string) ([]PodMetrics, error)
+	ListIngresses(ctx context.Context, namespace string) ([]IngressInfo, error)
+	ListServices(ctx context.Context, namespace string) ([]ServiceInfo, error)
 }
 
 // Client wraps a Kubernetes clientset for managing processes.
@@ -582,3 +587,147 @@ func (c *Client) deploymentToProcess(d appsv1.Deployment) models.Process {
 	}
 	return p
 }
+
+// GetNodeMetrics returns CPU/memory usage for all nodes from metrics.k8s.io.
+func (c *Client) GetNodeMetrics(ctx context.Context) ([]NodeMetrics, error) {
+	data, err := c.clientset.CoreV1().RESTClient().Get().AbsPath("/apis/metrics.k8s.io/v1beta1/nodes").DoRaw(ctx)
+	if err != nil {
+		// Degrade gracefully if metrics-server is not present or returns error.
+		return nil, nil
+	}
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Usage struct {
+				CPU    string `json:"cpu"`
+				Memory string `json:"memory"`
+			} `json:"usage"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, err
+	}
+	var res []NodeMetrics
+	for _, item := range list.Items {
+		cpuQ, err := resource.ParseQuantity(item.Usage.CPU)
+		if err != nil {
+			continue
+		}
+		memQ, err := resource.ParseQuantity(item.Usage.Memory)
+		if err != nil {
+			continue
+		}
+		res = append(res, NodeMetrics{
+			Name:     item.Metadata.Name,
+			CPUNano:  cpuQ.ScaledValue(resource.Nano),
+			MemBytes: memQ.Value(),
+		})
+	}
+	return res, nil
+}
+
+// GetPodMetrics returns CPU/memory usage for all pods in a namespace from metrics.k8s.io.
+func (c *Client) GetPodMetrics(ctx context.Context, namespace string) ([]PodMetrics, error) {
+	path := "/apis/metrics.k8s.io/v1beta1/namespaces/" + namespace + "/pods"
+	data, err := c.clientset.CoreV1().RESTClient().Get().AbsPath(path).DoRaw(ctx)
+	if err != nil {
+		// Degrade gracefully if metrics-server is not present or returns error.
+		return nil, nil
+	}
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Containers []struct {
+				Usage struct {
+					CPU    string `json:"cpu"`
+					Memory string `json:"memory"`
+				} `json:"usage"`
+			} `json:"containers"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, err
+	}
+	var res []PodMetrics
+	for _, item := range list.Items {
+		var cpuNano, memBytes int64
+		for _, container := range item.Containers {
+			cpuQ, err := resource.ParseQuantity(container.Usage.CPU)
+			if err == nil {
+				cpuNano += cpuQ.ScaledValue(resource.Nano)
+			}
+			memQ, err := resource.ParseQuantity(container.Usage.Memory)
+			if err == nil {
+				memBytes += memQ.Value()
+			}
+		}
+		res = append(res, PodMetrics{
+			Name:      item.Metadata.Name,
+			Namespace: namespace,
+			CPUNano:   cpuNano,
+			MemBytes:  memBytes,
+		})
+	}
+	return res, nil
+}
+
+// ListIngresses returns all managed Ingress rules in a namespace.
+func (c *Client) ListIngresses(ctx context.Context, namespace string) ([]IngressInfo, error) {
+	selector := labels.SelectorFromSet(map[string]string{ManagedByLabel: ManagedByValue})
+	list, err := c.clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
+	if err != nil {
+		return nil, err
+	}
+	var res []IngressInfo
+	for _, ing := range list.Items {
+		for _, rule := range ing.Spec.Rules {
+			if rule.HTTP == nil {
+				continue
+			}
+			for _, path := range rule.HTTP.Paths {
+				if path.Backend.Service != nil {
+					res = append(res, IngressInfo{
+						Name:        ing.Name,
+						Namespace:   ing.Namespace,
+						Host:        rule.Host,
+						ServiceName: path.Backend.Service.Name,
+						ServicePort: path.Backend.Service.Port.Number,
+					})
+				}
+			}
+		}
+	}
+	return res, nil
+}
+
+// ListServices returns all managed Services in a namespace with endpoint readiness.
+func (c *Client) ListServices(ctx context.Context, namespace string) ([]ServiceInfo, error) {
+	selector := labels.SelectorFromSet(map[string]string{ManagedByLabel: ManagedByValue})
+	list, err := c.clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
+	if err != nil {
+		return nil, err
+	}
+	var res []ServiceInfo
+	for _, svc := range list.Items {
+		var ready, total int32
+		eps, err := c.clientset.CoreV1().Endpoints(namespace).Get(ctx, svc.Name, metav1.GetOptions{})
+		if err == nil {
+			for _, subset := range eps.Subsets {
+				ready += int32(len(subset.Addresses))
+				total += int32(len(subset.Addresses) + len(subset.NotReadyAddresses))
+			}
+		}
+		res = append(res, ServiceInfo{
+			Name:      svc.Name,
+			Namespace: svc.Namespace,
+			ReadyPods: ready,
+			TotalPods: total,
+		})
+	}
+	return res, nil
+}
+

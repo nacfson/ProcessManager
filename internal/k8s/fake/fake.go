@@ -31,6 +31,16 @@ type Client struct {
 	ErrListEvents error
 	// ErrGetProcessDetail, if set, is returned by GetProcessDetail.
 	ErrGetProcessDetail error
+
+	// Observatory fields
+	NodeMetrics       []k8s.NodeMetrics
+	PodMetrics        map[string][]k8s.PodMetrics
+	Ingresses         map[string][]k8s.IngressInfo
+	Services          map[string][]k8s.ServiceInfo
+	ErrGetNodeMetrics error
+	ErrGetPodMetrics  error
+	ErrListIngresses  error
+	ErrListServices   error
 }
 
 // NewClient creates an empty fake client.
@@ -145,3 +155,41 @@ func (c *Client) GetProcessDetail(ctx context.Context, namespace, name string) (
 		Events:  events,
 	}, nil
 }
+
+func (c *Client) GetNodeMetrics(ctx context.Context) ([]k8s.NodeMetrics, error) {
+	if c.ErrGetNodeMetrics != nil {
+		return nil, c.ErrGetNodeMetrics
+	}
+	return c.NodeMetrics, nil
+}
+
+func (c *Client) GetPodMetrics(ctx context.Context, namespace string) ([]k8s.PodMetrics, error) {
+	if c.ErrGetPodMetrics != nil {
+		return nil, c.ErrGetPodMetrics
+	}
+	if c.PodMetrics == nil {
+		return nil, nil
+	}
+	return c.PodMetrics[namespace], nil
+}
+
+func (c *Client) ListIngresses(ctx context.Context, namespace string) ([]k8s.IngressInfo, error) {
+	if c.ErrListIngresses != nil {
+		return nil, c.ErrListIngresses
+	}
+	if c.Ingresses == nil {
+		return nil, nil
+	}
+	return c.Ingresses[namespace], nil
+}
+
+func (c *Client) ListServices(ctx context.Context, namespace string) ([]k8s.ServiceInfo, error) {
+	if c.ErrListServices != nil {
+		return nil, c.ErrListServices
+	}
+	if c.Services == nil {
+		return nil, nil
+	}
+	return c.Services[namespace], nil
+}
+

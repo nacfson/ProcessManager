@@ -125,6 +125,19 @@ func NewTemplate() (*template.Template, error) {
 			}
 			return m, nil
 		},
+		"colorForIndex": func(i int) string {
+			colors := []string{"#3b82f6", "#a855f7", "#14b8a6", "#f97316", "#ec4899", "#84cc16"}
+			return colors[i%len(colors)]
+		},
+		"barClass": func(percent int) string {
+			if percent >= 80 {
+				return "fill-red"
+			}
+			if percent >= 60 {
+				return "fill-yellow"
+			}
+			return "fill-green"
+		},
 	})
 
 	tmplFS, err := fs.Sub(templates.FS, ".")

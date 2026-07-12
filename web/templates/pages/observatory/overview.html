@@ -1,0 +1,116 @@
+{{template "components/layout" .}}
+
+{{define "pages/observatory/overview-content"}}
+{{template "components/page-header" dict "Title" "Observatory"}}
+
+<style>
+    .sub-tabs { display: flex; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 1px solid #334155; padding-bottom: 1rem; }
+    .sub-tabs a {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    .sub-tabs a.active {
+        background: var(--accent);
+        color: #0f172a;
+    }
+    .sub-tabs a.inactive {
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        border: 1px solid #334155;
+    }
+    .sub-tabs a.inactive:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+    
+    .progress-bar-container {
+        display: flex;
+        align-items: center;
+        margin-top: 0.5rem;
+    }
+    .progress-bar-bg {
+        flex: 1;
+        height: 8px;
+        background: rgba(255,255,255,0.06);
+        border-radius: 4px;
+        overflow: hidden;
+        margin-right: 10px;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+    }
+    .fill-green { background: #22c55e; }
+    .fill-yellow { background: #eab308; }
+    .fill-red { background: #ef4444; }
+    
+    .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+    .status-dot--healthy { background: #4ade80; box-shadow: 0 0 6px rgba(74, 222, 128, 0.4); }
+    .status-dot--degraded { background: #facc15; box-shadow: 0 0 6px rgba(250, 204, 21, 0.4); }
+    .status-dot--down { background: #f87171; box-shadow: 0 0 6px rgba(248, 113, 113, 0.4); }
+
+    .warning-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 10px 14px;
+        background: rgba(234,179,8,0.04);
+        border-radius: 6px;
+        border-left: 3px solid #eab308;
+        margin-bottom: 8px;
+        font-size: 0.875rem;
+    }
+</style>
+
+<div class="sub-tabs">
+    <a href="/observatory" class="active">Cluster Overview</a>
+    <a href="/observatory/topology" class="inactive">Service Topology</a>
+</div>
+
+<!-- Nodes Section -->
+<div class="card" style="margin-bottom: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0; font-size: 1.1rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em;">Cluster Nodes</h3>
+        <span style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 0.25rem;">
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: var(--accent); animation: pulse 2s infinite;"></span>
+            Auto-refreshing (10s)
+        </span>
+    </div>
+    <div id="nodes-container" hx-get="/observatory/fragments/nodes" hx-trigger="every 10s" hx-swap="innerHTML" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+        {{template "pages/observatory/nodes-fragment" .}}
+    </div>
+</div>
+
+<!-- Projects Section -->
+<div class="card" style="margin-bottom: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0; font-size: 1.1rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em;">Projects Summary</h3>
+        <span style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 0.25rem;">
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: var(--accent); animation: pulse 2s infinite;"></span>
+            Auto-refreshing (10s)
+        </span>
+    </div>
+    <div id="projects-container" hx-get="/observatory/fragments/projects" hx-trigger="every 10s" hx-swap="innerHTML">
+        {{template "pages/observatory/projects-fragment" .}}
+    </div>
+</div>
+
+<!-- Warning events -->
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0; font-size: 1.1rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em;">Warning Events</h3>
+        <span style="font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 0.25rem;">
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: var(--accent); animation: pulse 2s infinite;"></span>
+            Auto-refreshing (10s)
+        </span>
+    </div>
+    <div id="warnings-container" hx-get="/observatory/fragments/warnings" hx-trigger="every 10s" hx-swap="innerHTML">
+        {{template "pages/observatory/warnings-fragment" .}}
+    </div>
+</div>
+
+{{end}}

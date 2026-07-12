@@ -1,0 +1,42 @@
+{{if .Projects}}
+<table>
+    <thead>
+        <tr>
+            <th>Project</th>
+            <th>Namespace</th>
+            <th>Processes</th>
+            <th>Pods</th>
+            <th>CPU</th>
+            <th>Memory</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Projects}}
+        <tr>
+            <td><a href="/observatory/projects/{{.Name}}" style="font-weight: 600; text-decoration: none; color: var(--accent);">{{.Name}}</a></td>
+            <td style="color: var(--muted)">{{.Namespace}}</td>
+            <td>{{.Processes}}</td>
+            <td><span style="color: var(--accent)">{{.ReadyPods}}</span>/{{.TotalPods}}</td>
+            <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="inline-bar" style="width: 72px; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                        <span class="fill {{if ge .CPUPercent 0}}{{barClass .CPUPercent}}{{end}}" style="display: block; height: 100%; border-radius: 3px; width: {{if ge .CPUPercent 0}}{{.CPUPercent}}{{else}}0{{end}}%;"></span>
+                    </span>
+                    <span style="font-size: 0.8rem;">{{if ge .CPUPercent 0}}{{.CPUPercent}}%{{else}}N/A{{end}}</span>
+                </div>
+            </td>
+            <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="inline-bar" style="width: 72px; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle;">
+                        <span class="fill {{if ge .MemPercent 0}}{{barClass .MemPercent}}{{end}}" style="display: block; height: 100%; border-radius: 3px; width: {{if ge .MemPercent 0}}{{.MemPercent}}{{else}}0{{end}}%;"></span>
+                    </span>
+                    <span style="font-size: 0.8rem;">{{if ge .MemPercent 0}}{{.MemPercent}}%{{else}}N/A{{end}}</span>
+                </div>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="empty">No projects found.</div>
+{{end}}

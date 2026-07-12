@@ -1,0 +1,129 @@
+{{template "components/layout" .}}
+
+{{define "pages/observatory/topology-content"}}
+{{template "components/page-header" dict "Title" "Observatory"}}
+
+<style>
+    .sub-tabs { display: flex; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 1px solid #334155; padding-bottom: 1rem; }
+    .sub-tabs a {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        text-decoration: none;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    .sub-tabs a.active {
+        background: var(--accent);
+        color: #0f172a;
+    }
+    .sub-tabs a.inactive {
+        background: rgba(255, 255, 255, 0.05);
+        color: var(--text);
+        border: 1px solid #334155;
+    }
+    .sub-tabs a.inactive:hover {
+        background: rgba(255, 255, 255, 0.1);
+    }
+    
+    .topology-container {
+        background: var(--panel);
+        border: 1px solid #334155;
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    @keyframes dash {
+        to { stroke-dashoffset: -20; }
+    }
+    .flow-line {
+        stroke-dasharray: 8 6;
+        animation: dash 1.5s linear infinite;
+    }
+</style>
+
+<div class="sub-tabs">
+    <a href="/observatory" class="inactive">Cluster Overview</a>
+    <a href="/observatory/topology" class="active">Service Topology</a>
+</div>
+
+<!-- Topology SVG Map -->
+<div class="topology-container">
+    <div style="margin-bottom: 1rem; font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">SVG Service Map</div>
+    <svg width="100%" height="{{.SVGHeight}}" style="background: rgba(15, 23, 42, 0.3); border-radius: 0.375rem;">
+        <!-- Grid pattern background -->
+        <defs>
+            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.015)" stroke-width="1"/>
+            </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+
+        <!-- Column headers -->
+        <text x="130" y="25" fill="var(--muted)" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.05em">INGRESS</text>
+        <text x="470" y="25" fill="var(--muted)" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.05em">SERVICE</text>
+        <text x="780" y="25" fill="var(--muted)" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.05em">PODS</text>
+
+        {{range .Edges}}
+            <!-- Flow lines -->
+            <path d="M 240 {{.Y}} C 310 {{.Y}}, 310 {{.Y}}, 380 {{.Y}}" fill="none" stroke="{{.Color}}" stroke-width="1.5" opacity="0.6" class="flow-line"/>
+            <path d="M 560 {{.Y}} C 640 {{.Y}}, 640 {{.Y}}, 720 {{.Y}}" fill="none" stroke="{{.Color}}" stroke-width="1.5" opacity="0.6" class="flow-line"/>
+
+            <!-- Ingress card -->
+            <rect x="20" y="{{add .Y -20}}" width="220" height="40" rx="6" fill="rgba(15, 23, 42, 0.6)" stroke="{{.Color}}" stroke-width="1.5" />
+            <text x="35" y="{{add .Y 5}}" fill="{{.Color}}" font-size="11" font-weight="600">🌐 {{.IngressHost}}</text>
+
+            <!-- Service card -->
+            <rect x="380" y="{{add .Y -20}}" width="180" height="40" rx="6" fill="rgba(15, 23, 42, 0.6)" stroke="{{.Color}}" stroke-width="1.2" />
+            <text x="470" y="{{add .Y 5}}" fill="var(--text)" font-size="11" font-weight="500" text-anchor="middle">{{.ServiceName}}</text>
+
+            <!-- Pod group -->
+            <rect x="720" y="{{add .Y -20}}" width="120" height="40" rx="20" fill="rgba(15, 23, 42, 0.6)" stroke="{{if gt .ReadyPods 0}}#22c55e{{else}}#ef4444{{end}}" stroke-width="1.5" />
+            <circle cx="740" cy="{{.Y}}" r="4" fill="{{if gt .ReadyPods 0}}#22c55e{{else}}#ef4444{{end}}" />
+            <text x="785" y="{{add .Y 5}}" fill="var(--text)" font-size="11" font-weight="600" text-anchor="middle">{{.ReadyPods}}/{{.TotalPods}} pods</text>
+        {{else}}
+            <text x="50%" y="50%" fill="var(--muted)" font-size="14" text-anchor="middle">No service paths found.</text>
+        {{end}}
+    </svg>
+</div>
+
+<!-- Details Table -->
+<div class="card">
+    <div style="margin-bottom: 1rem; font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Connection Details</div>
+    {{if .Edges}}
+    <table>
+        <thead>
+            <tr>
+                <th>Ingress Host</th>
+                <th></th>
+                <th>Service</th>
+                <th></th>
+                <th>Pods</th>
+                <th>Namespace</th>
+                <th>Project</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Edges}}
+            <tr>
+                <td><span style="color: {{.Color}}; font-weight: 600;">{{.IngressHost}}</span></td>
+                <td style="color: var(--muted)">&rarr;</td>
+                <td>{{.ServiceName}}</td>
+                <td style="color: var(--muted)">&rarr;</td>
+                <td><span style="color: {{if gt .ReadyPods 0}}#22c55e{{else}}#ef4444{{end}}">{{.ReadyPods}}</span>/{{.TotalPods}}</td>
+                <td style="color: var(--muted)">{{.Namespace}}</td>
+                <td><span style="background: rgba(56, 189, 248, 0.15); color: var(--accent); padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem;">{{.Project}}</span></td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <div class="empty">No connection paths found.</div>
+    {{end}}
+</div>
+
+{{end}}
