@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Standalone remote-server deploy for ProcessManager central auth.
-# Paste this file ON THE SERVER, then:
+# Secrets come from a Bitwarden Secure Note (password manager CLI: `bw`).
+#
+# On the server:
 #   chmod +x deploy-auth.sh
-#   nano .env          # fill secrets first (see REQUIRED below)
+#   export BW_SESSION="$(bw unlock --raw)"   # after: bw login
 #   ./deploy-auth.sh
+#   ./deploy-auth.sh "processmanager-remote-env"   # custom note name/id
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +15,7 @@ cd "$DIR"
 IMAGE="${PROCESSMANAGER_IMAGE:-ghcr.io/nacfson/processmanager:latest}"
 COMPOSE_FILE="${DIR}/docker-compose.yml"
 ENV_FILE="${DIR}/.env"
+NOTE_NAME_OR_ID="${1:-processmanager-remote-env}"
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -21,10 +25,21 @@ need() {
 }
 
 need docker
+need bw
+need curl
 docker compose version >/dev/null 2>&1 || {
   echo "ERROR: Docker Compose plugin is required (docker compose)." >&2
   exit 1
 }
+
+if [[ -z "${BW_SESSION:-}" ]]; then
+  echo "ERROR: BW_SESSION is unset." >&2
+  echo "Run:" >&2
+  echo "  bw login" >&2
+  echo "  export BW_SESSION=\"\$(bw unlock --raw)\"" >&2
+  echo "  $0 ${NOTE_NAME_OR_ID}" >&2
+  exit 1
+fi
 
 # --- write compose file (idempotent) ---
 cat >"$COMPOSE_FILE" <<'YAML'
@@ -81,66 +96,65 @@ volumes:
   auth-pg-data:
 YAML
 
-# --- ensure .env exists ---
-if [[ ! -f "$ENV_FILE" ]]; then
-  cat >"$ENV_FILE" <<'ENV'
-PROCESSMANAGER_IMAGE=ghcr.io/nacfson/processmanager:latest
-AUTH_HOST_PORT=8080
+# --- pull .env from Bitwarden Secure Note ---
+echo "==> pulling Secure Note '${NOTE_NAME_OR_ID}' from Bitwarden"
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
 
-POSTGRES_DB=auth_db
-POSTGRES_USER=auth_user
-POSTGRES_PASSWORD=REPLACE_WITH_ROTATED_PASSWORD
+if ! bw get notes "$NOTE_NAME_OR_ID" >"$TMP" 2>/dev/null; then
+  if command -v jq >/dev/null 2>&1; then
+    bw get item "$NOTE_NAME_OR_ID" | jq -r '.notes // empty' >"$TMP"
+  else
+    echo "ERROR: could not read Secure Note '${NOTE_NAME_OR_ID}'." >&2
+    echo "Check the note name/id, or install jq for item-id fallback." >&2
+    exit 1
+  fi
+fi
 
-DATABASE_URL=postgres://auth_user:REPLACE_WITH_ROTATED_PASSWORD@postgres:5432/auth_db?sslmode=disable
-
-COOKIE_DOMAIN=nacfson.cloud
-SESSION_TTL=168h
-AUTH_INTERNAL_TOKEN=REPLACE_WITH_STRONG_TOKEN
-
-BOOTSTRAP_ADMIN_EMAIL=admin@nacfson.cloud
-BOOTSTRAP_ADMIN_PASSWORD=REPLACE_WITH_STRONG_PASSWORD
-
-AUTH_API_ALLOWED_ORIGINS=https://pn.nacfson.cloud,https://manager.nacfson.cloud
-AUTH_ALLOWED_REDIRECTS=http://localhost:8081
-ENV
-  chmod 600 "$ENV_FILE"
-  echo "Created $ENV_FILE — edit REPLACE_* values, then re-run:"
-  echo "  nano $ENV_FILE"
-  echo "  $0"
+if [[ ! -s "$TMP" ]]; then
+  echo "ERROR: Secure Note '${NOTE_NAME_OR_ID}' is empty." >&2
   exit 1
 fi
 
+# Keep KEY=VALUE lines only (drop comments / markers)
+grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$TMP" >"${ENV_FILE}.tmp"
+mv "${ENV_FILE}.tmp" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
-if grep -q 'REPLACE_WITH_' "$ENV_FILE"; then
-  echo "ERROR: $ENV_FILE still contains REPLACE_WITH_* placeholders." >&2
-  echo "Edit them first: nano $ENV_FILE" >&2
+if ! grep -qE '^POSTGRES_PASSWORD=' "$ENV_FILE" \
+  || ! grep -qE '^DATABASE_URL=' "$ENV_FILE" \
+  || ! grep -qE '^COOKIE_DOMAIN=' "$ENV_FILE" \
+  || ! grep -qE '^AUTH_INTERNAL_TOKEN=' "$ENV_FILE"; then
+  echo "ERROR: Secure Note must include POSTGRES_PASSWORD, DATABASE_URL, COOKIE_DOMAIN, AUTH_INTERNAL_TOKEN." >&2
   exit 1
 fi
 
+if grep -q 'REPLACE_WITH_' "$ENV_FILE"; then
+  echo "ERROR: Secure Note still has REPLACE_WITH_* placeholders. Update the note in Bitwarden." >&2
+  exit 1
+fi
+
+echo "    wrote ${ENV_FILE} ($(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_FILE") keys)"
+
 # --- optional private GHCR login ---
-# export GHCR_TOKEN=ghp_... before running if the package is private
 if [[ -n "${GHCR_TOKEN:-}" ]]; then
   echo "==> docker login ghcr.io"
   printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-nacfson}" --password-stdin
 fi
 
-echo "==> pull $IMAGE"
-# shellcheck disable=SC1090
 set -a
-# export vars for compose interpolation
-# (compose also reads --env-file; exporting helps PROCESSMANAGER_IMAGE)
-# shellcheck source=/dev/null
+# shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+
+echo "==> pull ${PROCESSMANAGER_IMAGE:-$IMAGE}"
 docker pull "${PROCESSMANAGER_IMAGE:-$IMAGE}"
 
 echo "==> compose up"
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps
 
-PORT="$(grep -E '^AUTH_HOST_PORT=' "$ENV_FILE" | cut -d= -f2- || true)"
-PORT="${PORT:-8080}"
+PORT="${AUTH_HOST_PORT:-8080}"
 echo "==> health check"
 if curl -fsS "http://127.0.0.1:${PORT}/healthz"; then
   echo
