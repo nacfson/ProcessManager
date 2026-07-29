@@ -10,7 +10,17 @@ Single-instance central auth for a private app (no home-lab Kubernetes required)
 | `auth` | Central auth (`./auth-service`) on host port `8080` |
 | `manager` (optional profile) | Dashboard with `USE_FAKE_K8S=true` |
 
-## 1. Get the image on the remote server
+## Laptop → remote one-shot
+
+From your machine (with `.env` ready, or already on the server):
+
+```bash
+./scripts/deploy-remote.sh user@YOUR_SERVER
+# optional: overwrite remote .env
+./scripts/deploy-remote.sh --force-env user@YOUR_SERVER ~/processmanager
+```
+
+This `rsync`s `docker-compose.yml` + scripts, pulls `ghcr.io/nacfson/processmanager:latest`, and runs Compose.
 
 ### Option A — pull from GHCR (recommended)
 
