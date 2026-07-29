@@ -35,9 +35,38 @@ chmod 600 .env
 ./scripts/remote-up.sh
 ```
 
-### Option B — Bitwarden Secrets Manager (`bws run`)
+### Option B — Bitwarden Secure Note (password manager)
 
-Create secrets whose **names match** the keys in `.env.example` (`POSTGRES_PASSWORD`, `DATABASE_URL`, `AUTH_INTERNAL_TOKEN`, …).
+Store the whole `.env` body in one Secure Note, then pull it onto the server.
+
+1. Open Bitwarden → **Add item** → **Secure note**
+2. Name it e.g. `processmanager-remote-env`
+3. Paste the `KEY=value` block from [`bitwarden-secure-note.example.env`](bitwarden-secure-note.example.env) (replace every `REPLACE_*` / sample secret)
+4. Save the note
+5. On the remote server:
+
+```bash
+# one-time: install bw CLI, then login
+bw login
+export BW_SESSION="$(bw unlock --raw)"
+
+# write ./.env from the secure note (name or item id)
+./scripts/pull-env-from-bitwarden.sh "processmanager-remote-env"
+./scripts/remote-up.sh
+```
+
+Manual alternative (no script):
+
+```bash
+bw get notes "processmanager-remote-env" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' > .env
+chmod 600 .env
+```
+
+Re-pull after you rotate secrets in the note, then `./scripts/remote-up.sh` again (or `docker compose up -d`).
+
+### Option C — Bitwarden Secrets Manager (`bws run`)
+
+Create **one secret per key** (names must match `.env.example`: `POSTGRES_PASSWORD`, `DATABASE_URL`, …). No `.env` file on disk.
 
 ```bash
 export BWS_ACCESS_TOKEN=...          # machine account token (chmod 600 file ok)
@@ -51,6 +80,10 @@ Equivalent raw command:
 bws run --project-id "$BWS_PROJECT_ID" -- docker compose up -d
 ```
 
+| Approach | Best when |
+|----------|-----------|
+| Secure Note + `.env` | You want one editable blob in Bitwarden |
+| Secrets Manager + `bws run` | You want no `.env` file left on the server |
 ## 4. Point your other process at auth
 
 ```env
