@@ -52,14 +52,13 @@ The dashboard expects either:
 For a private cloud VM without the home-lab Kubernetes nodes, use Docker Compose:
 
 ```bash
-./scripts/export-image.sh                 # build + save tarball
-# copy tarball + compose files to the server, then:
-gunzip -c processmanager-latest.tar.gz | docker load
-cp .env.example .env && chmod 600 .env    # or use Bitwarden: ./scripts/remote-up.sh --bws
+# pull published image (or ./scripts/push-ghcr.sh to rebuild/publish)
+docker pull ghcr.io/nacfson/processmanager:latest
+cp .env.example .env && chmod 600 .env    # or Bitwarden: ./scripts/remote-up.sh --bws
 ./scripts/remote-up.sh
 ```
 
-See [deploy/README.md](deploy/README.md) for Bitwarden `bws run` injection and consumer app wiring.
+See [deploy/README.md](deploy/README.md) for Bitwarden injection, GHCR push, and consumer app wiring.
 
 ## Build & Push Image
 

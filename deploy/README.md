@@ -10,21 +10,35 @@ Single-instance central auth for a private app (no home-lab Kubernetes required)
 | `auth` | Central auth (`./auth-service`) on host port `8080` |
 | `manager` (optional profile) | Dashboard with `USE_FAKE_K8S=true` |
 
-## 1. Export the image (build machine)
+## 1. Get the image on the remote server
+
+### Option A — pull from GHCR (recommended)
+
+```bash
+# image already published as:
+#   ghcr.io/nacfson/processmanager:latest
+docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin   # if the package is private
+docker pull ghcr.io/nacfson/processmanager:latest
+```
+
+Rebuild/push from a dev machine anytime with:
+
+```bash
+export GHCR_TOKEN=ghp_...   # PAT with write:packages
+./scripts/push-ghcr.sh
+./scripts/push-ghcr.sh v0.1.0   # optional version tag
+```
+
+### Option B — export a tarball
 
 ```bash
 ./scripts/export-image.sh processmanager-latest.tar.gz
 scp processmanager-latest.tar.gz user@remote:~/
-```
-
-## 2. Load on the remote server
-
-```bash
+# on remote:
 gunzip -c processmanager-latest.tar.gz | docker load
-# also copy docker-compose.yml, .env.example, and scripts/ onto the host
 ```
 
-## 3. Inject secrets
+## 2. Inject secrets
 
 ### Option A — `.env` file
 
@@ -103,4 +117,5 @@ Public JSON API:
 
 - Compose Postgres uses `sslmode=disable` in `DATABASE_URL`. Put TLS at the reverse proxy.
 - Full process deploy/scale still needs a real Kubernetes API; the optional manager profile is UI-only with fake k8s.
-- Keep only `BWS_ACCESS_TOKEN` (or `.env`) on the server — never bake secrets into the image.
+- Keep only `BWS_ACCESS_TOKEN` / `BW_SESSION` (or `.env`) on the server — never bake secrets into the image.
+- Secure Note still becomes a plaintext `.env` on disk after pull; `chmod 600` it and delete when done if you prefer ephemeral use.

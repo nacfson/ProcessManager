@@ -31,7 +31,7 @@ services:
       - authnet
 
   auth:
-    image: ${PROCESSMANAGER_IMAGE:-processmanager:latest}
+    image: ${PROCESSMANAGER_IMAGE:-ghcr.io/nacfson/processmanager:latest}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -61,7 +61,7 @@ services:
   # Optional: dashboard only. Process deploy/scale needs a real kubeconfig/cluster.
   manager:
     profiles: ["manager"]
-    image: ${PROCESSMANAGER_IMAGE:-processmanager:latest}
+    image: ${PROCESSMANAGER_IMAGE:-ghcr.io/nacfson/processmanager:latest}
     restart: unless-stopped
     depends_on:
       auth:
