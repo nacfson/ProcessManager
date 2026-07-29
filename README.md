@@ -47,6 +47,20 @@ The dashboard expects either:
 - A valid `~/.kube/config` pointing at a cluster, or
 - To be run inside a pod with a ServiceAccount.
 
+## Remote Compose (single instance / central auth)
+
+For a private cloud VM without the home-lab Kubernetes nodes, use Docker Compose:
+
+```bash
+./scripts/export-image.sh                 # build + save tarball
+# copy tarball + compose files to the server, then:
+gunzip -c processmanager-latest.tar.gz | docker load
+cp .env.example .env && chmod 600 .env    # or use Bitwarden: ./scripts/remote-up.sh --bws
+./scripts/remote-up.sh
+```
+
+See [deploy/README.md](deploy/README.md) for Bitwarden `bws run` injection and consumer app wiring.
+
 ## Build & Push Image
 
 ```bash

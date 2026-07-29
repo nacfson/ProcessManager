@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"processmanager/internal/auth"
 	"processmanager/internal/db"
@@ -25,14 +26,18 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
-	domain := flag.String("domain", "nacfson.cloud", "base domain for processes")
-	authServiceURL := flag.String("auth-service-url", "http://auth-service.nacfson-auth.svc.cluster.local:8080", "auth service URL")
+	domain := flag.String("domain", envOr("DOMAIN", "nacfson.cloud"), "base domain for processes")
+	authServiceURL := flag.String("auth-service-url", envOr("AUTH_SERVICE_URL", "http://auth-service.nacfson-auth.svc.cluster.local:8080"), "auth service URL")
 	authInternalToken := flag.String("auth-internal-token", os.Getenv("AUTH_INTERNAL_TOKEN"), "auth internal token")
 	sharedDSN := flag.String("shared-dsn", os.Getenv("SHARED_DATABASE_URL"), "shared app database DSN")
-	authHost := flag.String("auth-host", "auth.nacfson.cloud", "auth service host")
+	authHost := flag.String("auth-host", envOr("AUTH_HOST", "auth.nacfson.cloud"), "auth service host")
 	ingressHTTPSPort := flag.Int("ingress-https-port", 0, "ingress-nginx HTTPS port (e.g. 30443); 0 = standard port, omitted from URLs")
 	fakeK8s := flag.Bool("fake-k8s", false, "use an in-memory fake Kubernetes client")
 	flag.Parse()
+
+	if *authInternalToken == "" {
+		log.Println("warning: AUTH_INTERNAL_TOKEN is unset; auth API calls will fail")
+	}
 
 	handlers.AuthHost = *authHost
 	if *ingressHTTPSPort > 0 && *ingressHTTPSPort != 443 {
@@ -108,4 +113,11 @@ func main() {
 	if err := http.ListenAndServe(*addr, handlers.SecurityHeaders(handlers.CSRFMiddleware(mux))); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func envOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }

@@ -1,0 +1,87 @@
+# Remote single-instance stack: central auth + Postgres.
+# Compatible with a local .env file or Bitwarden Secrets Manager (`bws run`).
+#
+# Local secrets file:
+#   cp .env.example .env   # fill values, chmod 600
+#   docker compose up -d
+#
+# Bitwarden (secret names must match env var names):
+#   export BWS_ACCESS_TOKEN=...
+#   bws run --project-id "$BWS_PROJECT_ID" -- docker compose up -d
+#
+# Optional dashboard (no real Kubernetes on the instance):
+#   docker compose --profile manager up -d
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-auth_db}
+      POSTGRES_USER: ${POSTGRES_USER:-auth_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - auth-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - authnet
+
+  auth:
+    image: ${PROCESSMANAGER_IMAGE:-processmanager:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["./auth-service"]
+    ports:
+      - "${AUTH_HOST_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:?COOKIE_DOMAIN is required}
+      SESSION_TTL: ${SESSION_TTL:-168h}
+      AUTH_INTERNAL_TOKEN: ${AUTH_INTERNAL_TOKEN:?AUTH_INTERNAL_TOKEN is required}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      AUTH_API_ALLOWED_ORIGINS: ${AUTH_API_ALLOWED_ORIGINS:-}
+      AUTH_ALLOWED_REDIRECTS: ${AUTH_ALLOWED_REDIRECTS:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks:
+      - authnet
+
+  # Optional: dashboard only. Process deploy/scale needs a real kubeconfig/cluster.
+  manager:
+    profiles: ["manager"]
+    image: ${PROCESSMANAGER_IMAGE:-processmanager:latest}
+    restart: unless-stopped
+    depends_on:
+      auth:
+        condition: service_healthy
+    entrypoint: ["./manager"]
+    ports:
+      - "${MANAGER_HOST_PORT:-8081}:8080"
+    environment:
+      PORT: "8080"
+      DOMAIN: ${DOMAIN:-localhost}
+      AUTH_HOST: ${AUTH_HOST:-localhost}
+      USE_FAKE_K8S: ${USE_FAKE_K8S:-true}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth:8080}
+      AUTH_INTERNAL_TOKEN: ${AUTH_INTERNAL_TOKEN:?AUTH_INTERNAL_TOKEN is required}
+      SHARED_DATABASE_URL: ${SHARED_DATABASE_URL:-}
+    networks:
+      - authnet
+
+networks:
+  authnet:
+
+volumes:
+  auth-pg-data:

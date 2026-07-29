@@ -18,7 +18,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "auth database DSN")
 	cookieDomain := flag.String("cookie-domain", os.Getenv("COOKIE_DOMAIN"), "session cookie domain")
-	sessionTTL := flag.Duration("session-ttl", 7*24*time.Hour, "session lifetime")
+	sessionTTL := flag.Duration("session-ttl", envDuration("SESSION_TTL", "SESSION_LIFETIME", 7*24*time.Hour), "session lifetime")
 	apiAllowedOrigins := flag.String("api-allowed-origins", os.Getenv("AUTH_API_ALLOWED_ORIGINS"), "comma-separated origins allowed to call the JSON auth API")
 	allowedRedirects := flag.String("allowed-redirects", os.Getenv("AUTH_ALLOWED_REDIRECTS"), "comma-separated URLs allowed for redirect after login/logout")
 	flag.Parse()
@@ -28,6 +28,9 @@ func main() {
 	}
 	if *cookieDomain == "" {
 		*cookieDomain = "nacfson.cloud"
+	}
+	if os.Getenv("AUTH_INTERNAL_TOKEN") == "" {
+		log.Println("warning: AUTH_INTERNAL_TOKEN is unset; /api/internal/* will reject requests")
 	}
 
 	ctx := context.Background()
@@ -80,6 +83,23 @@ func splitAndTrim(value string) []string {
 		}
 	}
 	return out
+}
+
+// envDuration reads the first non-empty env var as a time.Duration, else returns fallback.
+func envDuration(primary, secondary string, fallback time.Duration) time.Duration {
+	for _, key := range []string{primary, secondary} {
+		raw := strings.TrimSpace(os.Getenv(key))
+		if raw == "" {
+			continue
+		}
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			log.Printf("warning: invalid %s=%q, using default %s", key, raw, fallback)
+			return fallback
+		}
+		return d
+	}
+	return fallback
 }
 
 func bootstrapAdmin(ctx context.Context, store *auth.Store) error {
