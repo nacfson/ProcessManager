@@ -8,8 +8,8 @@ set -euo pipefail
 
 IMAGE_TAG="${IMAGE_TAG:-ghcr.io/nacfson/processmanager:latest}"
 
-echo "==> Building and pushing image ${IMAGE_TAG}"
-docker buildx build --platform linux/amd64 -t "${IMAGE_TAG}" --push .
+echo "==> Building and pushing multi-arch image ${IMAGE_TAG} (linux/amd64,linux/arm64)"
+docker buildx build --platform linux/amd64,linux/arm64 -t "${IMAGE_TAG}" --push .
 
 echo "==> Applying auth and data namespaces"
 kubectl apply -f k8s/auth/namespace.yaml
