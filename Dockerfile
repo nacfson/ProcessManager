@@ -4,8 +4,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ENV CGO_ENABLED=0
+# TARGETOS/TARGETARCH are injected by buildx for each --platform.
 ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/manager ./cmd/manager \
     && GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/auth-service ./cmd/auth \
     && GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/sync-admins ./cmd/sync-admins
