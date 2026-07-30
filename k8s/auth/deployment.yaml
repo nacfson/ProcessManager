@@ -24,6 +24,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
+      imagePullSecrets:
+        - name: ghcr-pull
       containers:
         - name: auth
           image: ghcr.io/nacfson/processmanager:latest

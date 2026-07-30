@@ -55,7 +55,19 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 docker buildx build --platform linux/amd64 -t ghcr.io/nacfson/processmanager:latest --push .
 ```
 
-Deployments pull `ghcr.io/nacfson/processmanager:latest` (auth-service and manager).
+Deployments pull `ghcr.io/nacfson/processmanager:latest` (auth-service and manager). The package is private — create a pull secret in each namespace:
+
+```bash
+for ns in nacfson-auth nacfson-personal; do
+  kubectl create secret docker-registry ghcr-pull \
+    --docker-server=ghcr.io \
+    --docker-username=nacfson \
+    --docker-password="$GHCR_TOKEN" \
+    -n "$ns" \
+    --dry-run=client -o yaml | kubectl apply -f -
+done
+```
+
 ## Set Up the Cluster
 
 ### 1. Prepare both servers

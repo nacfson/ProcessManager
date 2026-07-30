@@ -15,6 +15,19 @@ echo "==> Applying auth and data namespaces"
 kubectl apply -f k8s/auth/namespace.yaml
 kubectl apply -f k8s/data/namespace.yaml
 
+if [[ -n "${GHCR_TOKEN:-}" ]]; then
+  echo "==> Ensuring GHCR image pull secrets"
+  for ns in nacfson-auth nacfson-personal; do
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl create secret docker-registry ghcr-pull \
+      --docker-server=ghcr.io \
+      --docker-username=nacfson \
+      --docker-password="$GHCR_TOKEN" \
+      -n "$ns" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  done
+fi
+
 echo "==> Applying auth secrets and databases"
 kubectl apply -f k8s/auth/secret.yaml
 kubectl apply -f k8s/auth/bootstrap-secret.yaml
