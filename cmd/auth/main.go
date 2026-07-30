@@ -6,10 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"processmanager/internal/auth"
 	"processmanager/internal/db"
 )
@@ -19,6 +20,7 @@ func main() {
 	dsn := flag.String("dsn", os.Getenv("DATABASE_URL"), "auth database DSN")
 	cookieDomain := flag.String("cookie-domain", os.Getenv("COOKIE_DOMAIN"), "session cookie domain")
 	sessionTTL := flag.Duration("session-ttl", 7*24*time.Hour, "session lifetime")
+	magicLinkTTL := flag.Duration("magic-link-ttl", defaultMagicLinkTTLFromEnv(), "magic-link token lifetime")
 	apiAllowedOrigins := flag.String("api-allowed-origins", os.Getenv("AUTH_API_ALLOWED_ORIGINS"), "comma-separated origins allowed to call the JSON auth API")
 	allowedRedirects := flag.String("allowed-redirects", os.Getenv("AUTH_ALLOWED_REDIRECTS"), "comma-separated URLs allowed for redirect after login/logout")
 	flag.Parse()
@@ -30,7 +32,9 @@ func main() {
 		*cookieDomain = "nacfson.cloud"
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	pool, err := db.NewPool(ctx, *dsn)
 	if err != nil {
 		log.Fatalf("failed to connect to auth db: %v", err)
@@ -46,9 +50,11 @@ func main() {
 		log.Fatalf("failed to bootstrap admin: %v", err)
 	}
 
+	go sweepExpiredLoginTokens(ctx, store)
+
 	limiter := auth.NewLoginLimiter(5, time.Minute)
 	defer limiter.Stop()
-	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, limiter, splitAndTrim(*apiAllowedOrigins), splitAndTrim(*allowedRedirects))
+	h, err := auth.NewHandler(store, *cookieDomain, *sessionTTL, *magicLinkTTL, limiter, splitAndTrim(*apiAllowedOrigins), splitAndTrim(*allowedRedirects))
 	if err != nil {
 		log.Fatalf("failed to create auth handler: %v", err)
 	}
@@ -61,9 +67,46 @@ func main() {
 		*addr = ":" + port
 	}
 
+	srv := &http.Server{Addr: *addr, Handler: mux}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+
 	log.Printf("auth service listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
+	}
+}
+
+func defaultMagicLinkTTLFromEnv() time.Duration {
+	if v := os.Getenv("MAGIC_LINK_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return 15 * time.Minute
+}
+
+func sweepExpiredLoginTokens(ctx context.Context, store *auth.Store) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n, err := store.DeleteExpiredLoginTokens(ctx)
+			if err != nil {
+				log.Printf("delete expired login tokens: %v", err)
+				continue
+			}
+			if n > 0 {
+				log.Printf("deleted %d expired login tokens", n)
+			}
+		}
 	}
 }
 
@@ -83,9 +126,8 @@ func splitAndTrim(value string) []string {
 }
 
 func bootstrapAdmin(ctx context.Context, store *auth.Store) error {
-	email := os.Getenv("BOOTSTRAP_ADMIN_EMAIL")
-	password := os.Getenv("BOOTSTRAP_ADMIN_PASSWORD")
-	if email == "" || password == "" {
+	email := strings.ToLower(strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_EMAIL")))
+	if email == "" {
 		return nil
 	}
 	exists, err := store.UserExists(ctx)
@@ -95,11 +137,7 @@ func bootstrapAdmin(ctx context.Context, store *auth.Store) error {
 	if exists {
 		return nil
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-	if _, err := store.CreateUser(ctx, email, string(hash), true, true); err != nil {
+	if err := store.EnsureAdmin(ctx, email); err != nil {
 		return err
 	}
 	log.Printf("bootstrapped admin user %s", email)

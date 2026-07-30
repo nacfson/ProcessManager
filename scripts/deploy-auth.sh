@@ -3,18 +3,10 @@ set -euo pipefail
 
 # Deploys the central auth service, shared app DB, and manager RBAC/secret updates.
 # Run from the project root.
-# Prerequisite: a container registry reachable from the cluster at 192.168.219.100:5000.
-# If you do not have one, run: kubectl apply -f k8s/registry/deployment.yaml
+# Builds and pushes ghcr.io/nacfson/processmanager:latest (requires docker login to ghcr.io).
+# Magic-link login requires a working SMTP relay configured in k8s/auth/smtp-secret.yaml.
 
-REGISTRY="192.168.219.100:5000"
-IMAGE_TAG="${REGISTRY}/processmanager:latest"
-
-# Ensure the local insecure registry exists.
-if ! curl -sf "http://${REGISTRY}/v2/_catalog" >/dev/null 2>&1; then
-  echo "==> Registry not reachable at ${REGISTRY}; deploying registry pod"
-  kubectl apply -f k8s/registry/deployment.yaml
-  kubectl rollout status deployment/registry -n nacfson-registry --timeout=120s
-fi
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/nacfson/processmanager:latest}"
 
 echo "==> Building and pushing image ${IMAGE_TAG}"
 docker buildx build --platform linux/amd64 -t "${IMAGE_TAG}" --push .
@@ -26,6 +18,7 @@ kubectl apply -f k8s/data/namespace.yaml
 echo "==> Applying auth secrets and databases"
 kubectl apply -f k8s/auth/secret.yaml
 kubectl apply -f k8s/auth/bootstrap-secret.yaml
+kubectl apply -f k8s/auth/smtp-secret.yaml
 kubectl apply -f k8s/auth/postgres.yaml
 kubectl apply -f k8s/data/secret.yaml
 kubectl apply -f k8s/data/postgres.yaml
@@ -59,3 +52,4 @@ kubectl rollout restart deployment/processmanager -n nacfson-personal
 kubectl rollout status deployment/processmanager -n nacfson-personal --timeout=120s
 
 echo "==> Auth foundation deployed. Next: register existing projects and annotate their ingresses."
+echo "    Note: magic-link login requires a working SMTP relay (k8s/auth/smtp-secret.yaml)."

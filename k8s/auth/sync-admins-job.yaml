@@ -11,7 +11,7 @@ spec:
         kubernetes.io/arch: amd64
       containers:
         - name: sync-admins
-          image: 192.168.219.100:5000/processmanager:latest
+          image: ghcr.io/nacfson/processmanager:latest
           imagePullPolicy: Always
           command: ["./sync-admins"]
           envFrom:

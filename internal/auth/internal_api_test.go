@@ -34,7 +34,7 @@ func TestInternalAPI(t *testing.T) {
 	}
 
 	// TRUNCATE tables to be hermetic
-	_, err = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
+	_, err = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications, login_tokens CASCADE")
 	if err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}

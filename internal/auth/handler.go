@@ -1,9 +1,7 @@
 package auth
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -11,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
-	"net/smtp"
 	"net/url"
 	"os"
 	"strconv"
@@ -21,20 +18,32 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	defaultMagicLinkTTL = 15 * time.Minute
+	magicLinkResendWait = 60 * time.Second
+)
+
 // Handler implements the central auth HTTP API.
 type Handler struct {
 	store             *Store
 	cookieDomain      string
 	sessionTTL        time.Duration
+	magicLinkTTL      time.Duration
 	apiAllowedOrigins []string
 	allowedRedirects  []*url.URL
 	tmpl              *template.Template
 	loginLimiter      *loginLimiter
+	mailer            *Mailer
 }
 
 type apiLoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type apiMagicLinkRequest struct {
+	Email    string `json:"email"`
+	Redirect string `json:"redirect"`
 }
 
 type apiSessionResponse struct {
@@ -50,7 +59,7 @@ type apiUserResponse struct {
 }
 
 // NewHandler creates an auth handler.
-func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, loginLimiter *loginLimiter, apiAllowedOrigins []string, allowedRedirects []string) (*Handler, error) {
+func NewHandler(store *Store, cookieDomain string, sessionTTL, magicLinkTTL time.Duration, loginLimiter *loginLimiter, apiAllowedOrigins []string, allowedRedirects []string) (*Handler, error) {
 	tmpl, err := template.New("").ParseGlob("web/templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
@@ -68,14 +77,20 @@ func NewHandler(store *Store, cookieDomain string, sessionTTL time.Duration, log
 		parsedRedirects = append(parsedRedirects, u)
 	}
 
+	if magicLinkTTL <= 0 {
+		magicLinkTTL = defaultMagicLinkTTL
+	}
+
 	return &Handler{
 		store:             store,
 		cookieDomain:      cookieDomain,
 		sessionTTL:        sessionTTL,
+		magicLinkTTL:      magicLinkTTL,
 		apiAllowedOrigins: apiAllowedOrigins,
 		allowedRedirects:  parsedRedirects,
 		tmpl:              tmpl,
 		loginLimiter:      loginLimiter,
+		mailer:            NewMailer(cookieDomain),
 	}, nil
 }
 
@@ -137,19 +152,23 @@ func (h *Handler) recordFailedLogin(r *http.Request, email string) {
 // RegisterRoutes registers auth routes on the mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", h.LoginForm)
-	mux.HandleFunc("POST /login", h.Login)
+	mux.HandleFunc("POST /login", h.RequestMagicLink)
 	mux.HandleFunc("POST /logout", h.Logout)
 	mux.HandleFunc("GET /verify", h.Verify)
-	mux.HandleFunc("GET /register", h.RegisterForm)
-	mux.HandleFunc("POST /register", h.Register)
-	mux.HandleFunc("GET /verification-sent", h.VerificationSent)
-	mux.HandleFunc("GET /verify-email", h.VerifyEmail)
+	mux.HandleFunc("GET /register", h.redirectRegisterToLogin)
+	mux.HandleFunc("POST /register", h.redirectRegisterToLogin)
+	mux.HandleFunc("GET /verify-email", h.redirectVerifyEmailToLogin)
+	mux.HandleFunc("GET /link-sent", h.LinkSent)
+	mux.HandleFunc("GET /magic", h.MagicForm)
+	mux.HandleFunc("POST /magic", h.MagicConsume)
 	mux.HandleFunc("OPTIONS /api/auth/session", h.APIOptions)
-	mux.HandleFunc("POST /api/auth/session", h.APILogin)
+	mux.HandleFunc("POST /api/auth/session", h.APILogin) // deprecated: password login kept for Project PN
 	mux.HandleFunc("GET /api/auth/session", h.APISession)
 	mux.HandleFunc("DELETE /api/auth/session", h.APILogout)
 	mux.HandleFunc("OPTIONS /api/auth/me", h.APIOptions)
 	mux.HandleFunc("GET /api/auth/me", h.APIMe)
+	mux.HandleFunc("OPTIONS /api/auth/magic-link", h.APIOptions)
+	mux.HandleFunc("POST /api/auth/magic-link", h.APIMagicLink)
 	mux.HandleFunc("GET /healthz", h.Healthz)
 
 	// Internal APIs
@@ -160,6 +179,23 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/internal/users", h.verifyInternalToken(http.HandlerFunc(h.InternalListUsers)))
 	mux.Handle("POST /api/internal/audit-events", h.verifyInternalToken(http.HandlerFunc(h.InternalLogAudit)))
 	mux.Handle("GET /api/internal/audit-events", h.verifyInternalToken(http.HandlerFunc(h.InternalListAudit)))
+}
+
+func (h *Handler) redirectRegisterToLogin(w http.ResponseWriter, r *http.Request) {
+	rd := r.URL.Query().Get("rd")
+	if rd == "" {
+		_ = r.ParseForm()
+		rd = r.FormValue("return_to")
+	}
+	target := "/login"
+	if rd != "" {
+		target += "?rd=" + url.QueryEscape(rd)
+	}
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
+}
+
+func (h *Handler) redirectVerifyEmailToLogin(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/login", http.StatusMovedPermanently)
 }
 
 // LoginForm renders the login page.
@@ -176,368 +212,187 @@ func (h *Handler) LoginForm(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Login authenticates a user and sets the session cookie.
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+// RequestMagicLink emails a one-time sign-in link (or surfaces it in the no-SMTP fallback).
+func (h *Handler) RequestMagicLink(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
 	if err := r.ParseForm(); err != nil {
 		h.redirectLogin(w, r, "invalid request")
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+	returnTo := r.FormValue("return_to")
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
+	if err != nil {
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
+	}
+
+	if email == "" {
+		h.redirectLogin(w, r, "email is required")
+		return
+	}
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		h.redirectLogin(w, r, "invalid email address")
+		return
+	}
+
 	if !h.loginAllowed(r, email) {
 		h.redirectLogin(w, r, "too many attempts")
 		return
 	}
-	password := r.FormValue("password")
-	returnTo := r.FormValue("return_to")
-	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
-	if err != nil {
-		h.redirectLogin(w, r, "invalid request")
-		return
-	}
+	// Each send is a mailbox hit — count every request toward the rate limit.
+	h.recordFailedLogin(r, email)
 
-	user, err := h.store.GetUserByEmail(r.Context(), email)
+	rawToken, err := h.issueMagicLink(r, email, validatedReturnTo)
 	if err != nil {
-		log.Printf("Login GetUserByEmail error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	if user == nil || user.PasswordHash == "" {
-		h.recordFailedLogin(r, email)
-		h.redirectLogin(w, r, "invalid credentials")
-		return
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		h.recordFailedLogin(r, email)
-		h.redirectLogin(w, r, "invalid credentials")
-		return
-	}
-	if !user.IsVerified {
-		h.redirectLogin(w, r, "email not verified")
-		return
-	}
-
-	token, hash, err := NewSessionToken()
-	if err != nil {
-		log.Printf("Login NewSessionToken error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	if _, err := h.store.CreateSession(r.Context(), user.ID, hash, h.sessionTTL); err != nil {
-		log.Printf("Login CreateSession error: %v", err)
+		log.Printf("RequestMagicLink issueMagicLink error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	SetSessionCookie(w, token, h.sessionTTL, h.cookieDomain)
-	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
+	q := "?rd=" + url.QueryEscape(validatedReturnTo)
+	if rawToken != "" && (h.mailer == nil || !h.mailer.Configured()) {
+		q += "&token=" + url.QueryEscape(rawToken)
+	}
+	http.Redirect(w, r, "/link-sent"+q, http.StatusFound)
 }
 
-// RegisterForm renders the registration page.
-func (h *Handler) RegisterForm(w http.ResponseWriter, r *http.Request) {
+// issueMagicLink creates (or finds) the user, stores a hashed token, and emails the link.
+// Returns the raw token when SMTP is not configured so callers can surface the dev fallback;
+// returns "" when the link was emailed (or silently throttled).
+func (h *Handler) issueMagicLink(r *http.Request, email, validatedReturnTo string) (rawToken string, err error) {
+	user, err := h.store.GetUserByEmail(r.Context(), email)
+	if err != nil {
+		return "", err
+	}
+	if user == nil {
+		user, err = h.store.CreateUser(r.Context(), email, "", false, false)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	if latest, err := h.store.LatestLoginTokenCreatedAt(r.Context(), user.ID); err != nil {
+		return "", err
+	} else if latest != nil && time.Since(*latest) < magicLinkResendWait {
+		return "", nil
+	}
+
+	if err := h.store.DeleteLoginTokensByUserID(r.Context(), user.ID); err != nil {
+		return "", err
+	}
+
+	raw, hash, err := NewAuthCode()
+	if err != nil {
+		return "", err
+	}
+	expiresAt := time.Now().UTC().Add(h.magicLinkTTL)
+	if err := h.store.CreateLoginToken(r.Context(), user.ID, hash, expiresAt); err != nil {
+		return "", err
+	}
+
+	link := fmt.Sprintf("https://%s/magic?token=%s&rd=%s", r.Host, raw, url.QueryEscape(validatedReturnTo))
+	subject := "Sign in to nacfson.cloud"
+	body := fmt.Sprintf("Click the link below to sign in:\n\n%s\n\nThis link expires in 15 minutes and can be used once.\nIf you did not request it, you can safely ignore this email.\n", link)
+
+	if h.mailer != nil && h.mailer.Configured() {
+		go func(to, subject, body string) {
+			if err := h.mailer.Send(to, subject, body); err != nil {
+				log.Printf("failed to send magic-link email to %s: %v", to, err)
+			}
+		}(email, subject, body)
+		return "", nil
+	}
+
+	fmt.Println(link)
+	return raw, nil
+}
+
+// LinkSent renders the "check your email" page.
+func (h *Handler) LinkSent(w http.ResponseWriter, r *http.Request) {
 	returnTo := r.URL.Query().Get("rd")
 	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
 	if err != nil {
 		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	h.tmpl.ExecuteTemplate(w, "register.html", map[string]any{
-		"ReturnTo": validatedReturnTo,
-		"Error":    r.URL.Query().Get("error"),
-	})
-}
-
-// Register processes a user registration.
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
-	if err := r.ParseForm(); err != nil {
-		q := "?error=" + url.QueryEscape("invalid request")
-		http.Redirect(w, r, "/register"+q, http.StatusFound)
-		return
-	}
-	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
-	password := r.FormValue("password")
-	confirmPassword := r.FormValue("confirm_password")
-	returnTo := r.FormValue("return_to")
-	if returnTo == "" {
-		returnTo = r.URL.Query().Get("rd")
-	}
-	var valErr error
-	returnTo, valErr = validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
-	if valErr != nil {
-		returnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
-	}
-
-	if !h.loginAllowed(r, email) {
-		h.redirectRegister(w, r, "too many attempts")
-		return
-	}
-
-	if email == "" {
-		h.recordFailedLogin(r, email)
-		h.redirectRegister(w, r, "email is required")
-		return
-	}
-
-	addr, err := mail.ParseAddress(email)
-	if err != nil || addr.Address != email {
-		h.recordFailedLogin(r, email)
-		h.redirectRegister(w, r, "invalid email address")
-		return
-	}
-
-	if password == "" {
-		h.recordFailedLogin(r, email)
-		h.redirectRegister(w, r, "password is required")
-		return
-	}
-	if len(password) < 8 {
-		h.recordFailedLogin(r, email)
-		h.redirectRegister(w, r, "password must be at least 8 characters")
-		return
-	}
-	if password != confirmPassword {
-		h.recordFailedLogin(r, email)
-		h.redirectRegister(w, r, "passwords do not match")
-		return
-	}
-
-	existing, err := h.store.GetUserByEmail(r.Context(), email)
-	if err != nil {
-		log.Printf("Register GetUserByEmail error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	if existing != nil {
-		if existing.IsVerified {
-			h.recordFailedLogin(r, email)
-			h.redirectRegister(w, r, "email already registered")
-			return
-		}
-
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		if err != nil {
-			log.Printf("Register bcrypt GenerateFromPassword error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		err = h.store.UpdateUserPassword(r.Context(), existing.ID, string(hash))
-		if err != nil {
-			log.Printf("Register UpdateUserPassword error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		err = h.store.DeleteEmailVerificationsByUserID(r.Context(), existing.ID)
-		if err != nil {
-			log.Printf("Register DeleteEmailVerificationsByUserID error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		tokenBytes := make([]byte, 16)
-		if _, err := rand.Read(tokenBytes); err != nil {
-			log.Printf("Register rand.Read error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		token := hex.EncodeToString(tokenBytes)
-
-		expiresAt := time.Now().UTC().Add(24 * time.Hour)
-		err = h.store.CreateEmailVerification(r.Context(), existing.ID, token, expiresAt)
-		if err != nil {
-			log.Printf("Register CreateEmailVerification error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		verificationLink := fmt.Sprintf("https://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
-
-		smtpHost := os.Getenv("SMTP_HOST")
-		if smtpHost != "" {
-			smtpPort := os.Getenv("SMTP_PORT")
-			if smtpPort == "" {
-				smtpPort = "25"
-			}
-			addr := smtpHost
-			if !strings.Contains(smtpHost, ":") {
-				addr = net.JoinHostPort(smtpHost, smtpPort)
-			}
-			smtpUser := os.Getenv("SMTP_USER")
-			var auth smtp.Auth
-			if smtpUser != "" {
-				smtpPass := os.Getenv("SMTP_PASS")
-				if smtpPass == "" {
-					smtpPass = os.Getenv("SMTP_PASSWORD")
-				}
-				auth = smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
-			}
-			from := os.Getenv("SMTP_FROM")
-			if from == "" {
-				from = "noreply@" + h.cookieDomain
-			}
-			subject := "Verify your email address"
-			body := fmt.Sprintf("Please verify your email address by clicking the following link:\n\n%s", verificationLink)
-			msg := []byte("To: " + email + "\r\n" +
-				"From: " + from + "\r\n" +
-				"Subject: " + subject + "\r\n" +
-				"\r\n" +
-				body + "\r\n")
-
-			go func() {
-				if err := smtp.SendMail(addr, auth, from, []string{email}, msg); err != nil {
-					log.Printf("failed to send verification email to %s: %v", email, err)
-				}
-			}()
-		} else {
-			fmt.Println(verificationLink)
-		}
-
-		q := "?token=" + url.QueryEscape(token) + "&rd=" + url.QueryEscape(returnTo)
-		http.Redirect(w, r, "/verification-sent"+q, http.StatusFound)
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		log.Printf("Register bcrypt GenerateFromPassword error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	user, err := h.store.CreateUser(r.Context(), email, string(hash), false, false)
-	if err != nil {
-		log.Printf("Register CreateUser error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	tokenBytes := make([]byte, 16)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		log.Printf("Register rand.Read error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	token := hex.EncodeToString(tokenBytes)
-
-	expiresAt := time.Now().UTC().Add(24 * time.Hour)
-	err = h.store.CreateEmailVerification(r.Context(), user.ID, token, expiresAt)
-	if err != nil {
-		log.Printf("Register CreateEmailVerification error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	verificationLink := fmt.Sprintf("https://%s/verify-email?token=%s&rd=%s", r.Host, token, url.QueryEscape(returnTo))
-
-	smtpHost := os.Getenv("SMTP_HOST")
-	if smtpHost != "" {
-		smtpPort := os.Getenv("SMTP_PORT")
-		if smtpPort == "" {
-			smtpPort = "25"
-		}
-		addr := smtpHost
-		if !strings.Contains(smtpHost, ":") {
-			addr = net.JoinHostPort(smtpHost, smtpPort)
-		}
-		smtpUser := os.Getenv("SMTP_USER")
-		var auth smtp.Auth
-		if smtpUser != "" {
-			smtpPass := os.Getenv("SMTP_PASS")
-			if smtpPass == "" {
-				smtpPass = os.Getenv("SMTP_PASSWORD")
-			}
-			auth = smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
-		}
-		from := os.Getenv("SMTP_FROM")
-		if from == "" {
-			from = "noreply@" + h.cookieDomain
-		}
-		subject := "Verify your email address"
-		body := fmt.Sprintf("Please verify your email address by clicking the following link:\n\n%s", verificationLink)
-		msg := []byte("To: " + email + "\r\n" +
-			"From: " + from + "\r\n" +
-			"Subject: " + subject + "\r\n" +
-			"\r\n" +
-			body + "\r\n")
-
-		go func() {
-			if err := smtp.SendMail(addr, auth, from, []string{email}, msg); err != nil {
-				log.Printf("failed to send verification email to %s: %v", email, err)
-			}
-		}()
-	} else {
-		fmt.Println(verificationLink)
-	}
-
-	q := "?token=" + url.QueryEscape(token) + "&rd=" + url.QueryEscape(returnTo)
-	http.Redirect(w, r, "/verification-sent"+q, http.StatusFound)
-}
-
-// VerificationSent renders the verification sent page.
-func (h *Handler) VerificationSent(w http.ResponseWriter, r *http.Request) {
-	returnTo := r.URL.Query().Get("rd")
-	if returnTo == "" {
-		returnTo = "/"
-	}
 	token := r.URL.Query().Get("token")
 
 	data := map[string]any{
-		"ReturnTo": returnTo,
+		"ReturnTo": validatedReturnTo,
 	}
-
-	if os.Getenv("SMTP_HOST") == "" {
-		data["VerificationLink"] = fmt.Sprintf("/verify-email?token=%s&rd=%s", url.QueryEscape(token), url.QueryEscape(returnTo))
+	if (h.mailer == nil || !h.mailer.Configured()) && token != "" {
+		data["MagicLink"] = fmt.Sprintf("/magic?token=%s&rd=%s", url.QueryEscape(token), url.QueryEscape(validatedReturnTo))
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	h.tmpl.ExecuteTemplate(w, "verification_sent.html", data)
+	h.tmpl.ExecuteTemplate(w, "link_sent.html", data)
 }
 
-// VerifyEmail verifies the email token and logs the user in.
-func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+// MagicForm renders the scanner-safe interstitial Continue page without consuming the token.
+func (h *Handler) MagicForm(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		http.Redirect(w, r, "/register?error="+url.QueryEscape("invalid or expired verification token"), http.StatusFound)
+		h.redirectLogin(w, r, "invalid sign-in link")
+		return
+	}
+	returnTo := r.URL.Query().Get("rd")
+	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
+	if err != nil {
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.tmpl.ExecuteTemplate(w, "magic.html", map[string]any{
+		"Token":    token,
+		"ReturnTo": validatedReturnTo,
+	})
+}
+
+// MagicConsume redeems a one-time sign-in token and creates a session.
+func (h *Handler) MagicConsume(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
+	if err := r.ParseForm(); err != nil {
+		h.redirectLogin(w, r, "invalid request")
+		return
+	}
+	token := r.FormValue("token")
+	if token == "" {
+		h.redirectLogin(w, r, "invalid sign-in link")
 		return
 	}
 
-	ev, err := h.store.GetEmailVerification(r.Context(), token)
+	lt, err := h.store.ConsumeLoginToken(r.Context(), HashSessionToken(token))
 	if err != nil {
-		log.Printf("VerifyEmail GetEmailVerification error: %v", err)
+		log.Printf("MagicConsume ConsumeLoginToken error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	if ev == nil || ev.ExpiresAt.Before(time.Now()) {
-		http.Redirect(w, r, "/register?error="+url.QueryEscape("invalid or expired verification token"), http.StatusFound)
+	if lt == nil {
+		h.redirectLogin(w, r, "link expired or already used")
 		return
 	}
 
-	err = h.store.VerifyUser(r.Context(), ev.UserID)
-	if err != nil {
-		log.Printf("VerifyEmail VerifyUser error: %v", err)
+	if err := h.store.VerifyUser(r.Context(), lt.UserID); err != nil {
+		log.Printf("MagicConsume VerifyUser error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	sessToken, hash, err := NewSessionToken()
 	if err != nil {
-		log.Printf("VerifyEmail NewSessionToken error: %v", err)
+		log.Printf("MagicConsume NewSessionToken error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	if _, err := h.store.CreateSession(r.Context(), ev.UserID, hash, h.sessionTTL); err != nil {
-		log.Printf("VerifyEmail CreateSession error: %v", err)
+	if _, err := h.store.CreateSession(r.Context(), lt.UserID, hash, h.sessionTTL); err != nil {
+		log.Printf("MagicConsume CreateSession error: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	_ = h.store.DeleteEmailVerification(r.Context(), token)
 
 	SetSessionCookie(w, sessToken, h.sessionTTL, h.cookieDomain)
 
-	returnTo := r.URL.Query().Get("rd")
+	returnTo := r.FormValue("return_to")
 	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
 	if err != nil {
 		validatedReturnTo = "/"
@@ -553,6 +408,45 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	ClearSessionCookie(w, h.cookieDomain)
 	validatedReturnTo, _ := validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
+}
+
+// APIMagicLink emails a magic link for JSON API consumers (always 202 on success path).
+func (h *Handler) APIMagicLink(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAPIOrigin(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1048576)
+	var req apiMagicLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" {
+		writeAPIError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+	addr, err := mail.ParseAddress(email)
+	if err != nil || addr.Address != email {
+		writeAPIError(w, http.StatusBadRequest, "invalid email address")
+		return
+	}
+	validatedReturnTo, err := validateReturnTo(req.Redirect, h.cookieDomain, h.allowedRedirects)
+	if err != nil {
+		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
+	}
+	if !h.loginAllowed(r, email) {
+		writeAPIError(w, http.StatusTooManyRequests, "too many attempts")
+		return
+	}
+	h.recordFailedLogin(r, email)
+
+	if _, err := h.issueMagicLink(r, email, validatedReturnTo); err != nil {
+		log.Printf("APIMagicLink issueMagicLink error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	writeAPIJSON(w, http.StatusAccepted, map[string]string{"status": "sent"})
 }
 
 // APILogin authenticates a user and returns a bearer session token.

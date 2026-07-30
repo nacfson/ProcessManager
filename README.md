@@ -50,18 +50,12 @@ The dashboard expects either:
 ## Build & Push Image
 
 ```bash
-# Build for the cluster (image is pushed to the local registry at 192.168.219.100:5000)
-docker buildx build --platform linux/amd64 -t 192.168.219.100:5000/processmanager:latest --push .
+# Build and push to GitHub Container Registry
+echo "$GHCR_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+docker buildx build --platform linux/amd64 -t ghcr.io/nacfson/processmanager:latest --push .
 ```
 
-If Docker Desktop refuses the insecure registry, add this to `~/.docker/daemon.json` and restart Docker Desktop:
-
-```json
-{
-  "insecure-registries": ["192.168.219.100:5000"]
-}
-```
-
+Deployments pull `ghcr.io/nacfson/processmanager:latest` (auth-service and manager).
 ## Set Up the Cluster
 
 ### 1. Prepare both servers
@@ -129,15 +123,14 @@ Add to your local `/etc/hosts`:
 192.168.219.100 manager.nacfson.cloud auth.nacfson.cloud pn.nacfson.cloud portfolio.nacfson.cloud
 ```
 
-Sign in at `https://auth.nacfson.cloud/login` with the bootstrap admin credentials from `k8s/auth/bootstrap-secret.yaml`.
+Sign in at `https://auth.nacfson.cloud/login` by entering the bootstrap admin email from `k8s/auth/bootstrap-secret.yaml`. A one-time magic link is emailed (or shown on-screen when SMTP is not configured).
 
 Then access:
 - `https://manager.nacfson.cloud`
 - `https://pn.nacfson.cloud`
 - `https://portfolio.nacfson.cloud`
 
-> **Change the bootstrap admin password immediately** after first login by editing `k8s/auth/bootstrap-secret.yaml`, reapplying, and restarting the auth deployment.
-
+> **Magic-link login requires a working SMTP relay.** Configure `k8s/auth/smtp-secret.yaml` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`) before production use. Without SMTP, the auth service prints the sign-in link to its logs and surfaces it on the link-sent page for local development.
 ## Database Persistence
 
 All Postgres databases use Kubernetes PVCs provisioned by `local-path-provisioner`:

@@ -24,8 +24,8 @@ spec:
         runAsGroup: 1000
       containers:
         - name: manager
-          image: 192.168.219.100:5000/processmanager:latest
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/nacfson/processmanager:latest
+          imagePullPolicy: Always
           command: ["./manager"]
           ports:
             - containerPort: 8080

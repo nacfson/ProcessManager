@@ -186,6 +186,91 @@ func (s *Store) DeleteEmailVerificationsByUserID(ctx context.Context, userID str
 	return err
 }
 
+// LoginToken is a pending one-time sign-in token.
+type LoginToken struct {
+	UserID    string
+	TokenHash string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+// CreateLoginToken inserts a new hashed magic-link token.
+func (s *Store) CreateLoginToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO login_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`,
+		tokenHash, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("create login token: %w", err)
+	}
+	return nil
+}
+
+// ConsumeLoginToken atomically deletes and returns a non-expired login token.
+// Returns (nil, nil) when the token is unknown, expired, or already consumed.
+func (s *Store) ConsumeLoginToken(ctx context.Context, tokenHash string) (*LoginToken, error) {
+	var lt LoginToken
+	err := s.pool.QueryRow(ctx,
+		`DELETE FROM login_tokens
+		 WHERE token_hash = $1 AND expires_at > now()
+		 RETURNING user_id, token_hash, expires_at, created_at`,
+		tokenHash,
+	).Scan(&lt.UserID, &lt.TokenHash, &lt.ExpiresAt, &lt.CreatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("consume login token: %w", err)
+	}
+	return &lt, nil
+}
+
+// DeleteLoginTokensByUserID removes all outstanding login tokens for a user.
+func (s *Store) DeleteLoginTokensByUserID(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM login_tokens WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("delete login tokens by user: %w", err)
+	}
+	return nil
+}
+
+// LatestLoginTokenCreatedAt returns the most recent login-token creation time for a user.
+// Returns (nil, nil) when the user has no outstanding tokens.
+func (s *Store) LatestLoginTokenCreatedAt(ctx context.Context, userID string) (*time.Time, error) {
+	var createdAt *time.Time
+	err := s.pool.QueryRow(ctx,
+		`SELECT max(created_at) FROM login_tokens WHERE user_id = $1`,
+		userID,
+	).Scan(&createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("latest login token created at: %w", err)
+	}
+	return createdAt, nil
+}
+
+// DeleteExpiredLoginTokens removes expired login tokens and returns the deleted row count.
+func (s *Store) DeleteExpiredLoginTokens(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM login_tokens WHERE expires_at <= now()`)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired login tokens: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// EnsureAdmin upserts a verified admin user with no password.
+func (s *Store) EnsureAdmin(ctx context.Context, email string) error {
+	existing, err := s.GetUserByEmail(ctx, email)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		_, err := s.CreateUser(ctx, email, "", true, true)
+		return err
+	}
+	_, err = s.pool.Exec(ctx,
+		`UPDATE users SET is_admin = true, is_verified = true WHERE id = $1`,
+		existing.ID)
+	return err
+}
 
 // CreateSession inserts a session.
 func (s *Store) CreateSession(ctx context.Context, userID, tokenHash string, lifetime time.Duration) (*Session, error) {
@@ -437,4 +522,12 @@ CREATE TABLE IF NOT EXISTS email_verifications (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
+
+CREATE TABLE IF NOT EXISTS login_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_login_tokens_user ON login_tokens(user_id);
 `

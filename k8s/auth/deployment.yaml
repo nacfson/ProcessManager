@@ -26,7 +26,7 @@ spec:
         runAsGroup: 1000
       containers:
         - name: auth
-          image: 192.168.219.100:5000/processmanager:latest
+          image: ghcr.io/nacfson/processmanager:latest
           imagePullPolicy: Always
           command: ["./auth-service"]
           ports:
@@ -36,6 +36,8 @@ spec:
                 name: auth-db-secrets
             - secretRef:
                 name: auth-bootstrap
+            - secretRef:
+                name: auth-smtp
           env:
             - name: PORT
               value: "8080"
@@ -43,6 +45,8 @@ spec:
               value: "nacfson.cloud"
             - name: SESSION_LIFETIME
               value: "168h"
+            - name: MAGIC_LINK_TTL
+              value: "15m"
             - name: AUTH_API_ALLOWED_ORIGINS
               value: "https://pn.nacfson.cloud"
             - name: AUTH_ALLOWED_REDIRECTS
