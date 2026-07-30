@@ -35,9 +35,13 @@ Rebuild/push from a dev machine anytime with:
 
 ```bash
 export GHCR_TOKEN=ghp_...   # PAT with write:packages
-./scripts/push-ghcr.sh
-./scripts/push-ghcr.sh v0.1.0   # optional version tag
+./scripts/push-ghcr.sh                 # linux/amd64 + linux/arm64
+./scripts/push-ghcr.sh v0.1.0          # optional version tag
+# single arch only:
+PLATFORM=linux/arm64 ./scripts/push-ghcr.sh
 ```
+
+CI also publishes multi-arch images on pushes to `main` (see `.github/workflows/ghcr.yml`).
 
 ### Option B — export a tarball
 

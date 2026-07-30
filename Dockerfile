@@ -4,6 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ENV CGO_ENABLED=0
+# BuildKit/buildx sets TARGETOS/TARGETARCH per --platform (amd64, arm64, ...).
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/manager ./cmd/manager \
