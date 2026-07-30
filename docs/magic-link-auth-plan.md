@@ -1,5 +1,7 @@
 # Plan: Replace Password Auth with Magic-Link Login
 
+> Detailed contracts (schema, store API, endpoint behavior, test matrix) are in the companion design spec: [magic-link-auth-spec.md](./magic-link-auth-spec.md).
+
 ## Background
 
 ### What is a magic link?
