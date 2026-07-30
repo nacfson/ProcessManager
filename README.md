@@ -50,9 +50,10 @@ The dashboard expects either:
 ## Build & Push Image
 
 ```bash
-# Build and push to GitHub Container Registry
+# Build and push a multi-arch image (linux/amd64 + linux/arm64) to GitHub Container Registry
 echo "$GHCR_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
-docker buildx build --platform linux/amd64 -t ghcr.io/nacfson/processmanager:latest --push .
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/nacfson/processmanager:latest --push .
 ```
 
 Deployments pull `ghcr.io/nacfson/processmanager:latest` (auth-service and manager). The package is private — create a pull secret in each namespace:
