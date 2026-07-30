@@ -62,6 +62,8 @@ See [deploy/README.md](deploy/README.md) for Bitwarden injection, GHCR push, and
 
 ## Build & Push Image
 
+### Local registry (home lab)
+
 ```bash
 # Build for the cluster (image is pushed to the local registry at 192.168.219.100:5000)
 docker buildx build --platform linux/amd64 -t 192.168.219.100:5000/processmanager:latest --push .
@@ -74,6 +76,19 @@ If Docker Desktop refuses the insecure registry, add this to `~/.docker/daemon.j
   "insecure-registries": ["192.168.219.100:5000"]
 }
 ```
+
+### GHCR (cloud / remote)
+
+```bash
+# Multi-arch (amd64 + arm64) — recommended for mixed or ARM hosts
+export GHCR_TOKEN=ghp_...   # PAT with write:packages
+./scripts/push-ghcr.sh
+
+# Or a specific version tag
+./scripts/push-ghcr.sh v0.1.0
+```
+
+Then on the remote host set `PROCESSMANAGER_IMAGE=ghcr.io/nacfson/processmanager:latest` in `.env` (or Bitwarden) and run Compose / `./scripts/deploy-auth-remote.sh`.
 
 ## Set Up the Cluster
 
