@@ -884,8 +884,8 @@ func parseEnv(input string) map[string]string {
                 <label for="arch">Target Architecture</label>
                 <select id="arch" name="arch">
                     <option value="any">Any</option>
-                    <option value="amd64">amd64 (zlUbuntu)</option>
-                    <option value="arm64">arm64 (rlLocal)</option>
+                    <option value="amd64">amd64 (local control plane)</option>
+                    <option value="arm64">arm64 (optional local worker)</option>
                 </select>
             </div>
             <div>
