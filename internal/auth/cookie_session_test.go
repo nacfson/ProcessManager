@@ -82,7 +82,7 @@ func TestProtectedAuthRoutesRequireCSRF(t *testing.T) {
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
-	for _, path := range []string{"/login", "/register", "/logout"} {
+	for _, path := range []string{"/login", "/magic", "/logout"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, path, nil)
 			rec := httptest.NewRecorder()
