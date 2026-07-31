@@ -40,6 +40,8 @@ spec:
                 name: auth-bootstrap
             - secretRef:
                 name: auth-smtp
+            - secretRef:
+                name: auth-session-secrets
           env:
             - name: PORT
               value: "8080"

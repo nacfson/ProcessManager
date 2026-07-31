@@ -152,15 +152,15 @@ func (h *Handler) recordFailedLogin(r *http.Request, email string) {
 // RegisterRoutes registers auth routes on the mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /login", h.LoginForm)
-	mux.HandleFunc("POST /login", h.RequestMagicLink)
-	mux.HandleFunc("POST /logout", h.Logout)
+	mux.HandleFunc("POST /login", h.requireCSRF(h.RequestMagicLink))
+	mux.HandleFunc("POST /logout", h.requireCSRF(h.Logout))
 	mux.HandleFunc("GET /verify", h.Verify)
 	mux.HandleFunc("GET /register", h.redirectRegisterToLogin)
 	mux.HandleFunc("POST /register", h.redirectRegisterToLogin)
 	mux.HandleFunc("GET /verify-email", h.redirectVerifyEmailToLogin)
 	mux.HandleFunc("GET /link-sent", h.LinkSent)
 	mux.HandleFunc("GET /magic", h.MagicForm)
-	mux.HandleFunc("POST /magic", h.MagicConsume)
+	mux.HandleFunc("POST /magic", h.requireCSRF(h.MagicConsume))
 	mux.HandleFunc("OPTIONS /api/auth/session", h.APIOptions)
 	mux.HandleFunc("POST /api/auth/session", h.APILogin) // deprecated: password login kept for Project PN
 	mux.HandleFunc("GET /api/auth/session", h.APISession)
@@ -173,6 +173,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Internal APIs
 	mux.Handle("GET /api/internal/session", h.verifyInternalToken(http.HandlerFunc(h.InternalSession)))
+	mux.Handle("GET /api/internal/cookie-session", h.verifySessionInternalToken(http.HandlerFunc(h.InternalCookieSession)))
 	mux.Handle("GET /api/internal/projects", h.verifyInternalToken(http.HandlerFunc(h.InternalListProjects)))
 	mux.Handle("GET /api/internal/projects/{name}", h.verifyInternalToken(http.HandlerFunc(h.InternalGetProject)))
 	mux.Handle("POST /api/internal/projects", h.verifyInternalToken(http.HandlerFunc(h.InternalCreateProject)))
@@ -206,9 +207,11 @@ func (h *Handler) LoginForm(w http.ResponseWriter, r *http.Request) {
 		validatedReturnTo, _ = validateReturnTo("", h.cookieDomain, h.allowedRedirects)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	csrfToken := EnsureCSRFToken(w, r, h.cookieDomain)
 	h.tmpl.ExecuteTemplate(w, "login.html", map[string]any{
-		"ReturnTo": validatedReturnTo,
-		"Error":    r.URL.Query().Get("error"),
+		"ReturnTo":  validatedReturnTo,
+		"Error":     r.URL.Query().Get("error"),
+		"CSRFToken": csrfToken,
 	})
 }
 
@@ -342,9 +345,11 @@ func (h *Handler) MagicForm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	csrfToken := EnsureCSRFToken(w, r, h.cookieDomain)
 	h.tmpl.ExecuteTemplate(w, "magic.html", map[string]any{
-		"Token":    token,
-		"ReturnTo": validatedReturnTo,
+		"Token":     token,
+		"ReturnTo":  validatedReturnTo,
+		"CSRFToken": csrfToken,
 	})
 }
 
@@ -545,15 +550,33 @@ func (h *Handler) APILogout(w http.ResponseWriter, r *http.Request) {
 	if !h.allowAPIOrigin(w, r) {
 		return
 	}
-	token := BearerToken(r)
-	if token == "" {
+	bearerToken := BearerToken(r)
+	cookieToken := SessionCookie(r)
+	if cookieToken != "" && !ValidCSRFToken(r) {
+		writeAPIError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	if bearerToken == "" && cookieToken == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if err := h.store.DeleteSession(r.Context(), HashSessionToken(token)); err != nil {
-		log.Printf("APILogout DeleteSession error: %v", err)
-		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
-		return
+
+	tokens := []string{bearerToken}
+	if cookieToken != "" && cookieToken != bearerToken {
+		tokens = append(tokens, cookieToken)
+	}
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		if err := h.store.DeleteSession(r.Context(), HashSessionToken(token)); err != nil {
+			log.Printf("APILogout DeleteSession error: %v", err)
+			writeAPIError(w, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+	}
+	if cookieToken != "" {
+		ClearSessionCookie(w, h.cookieDomain)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -630,7 +653,10 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) apiSession(w http.ResponseWriter, r *http.Request) (*Session, bool) {
 	token := BearerToken(r)
 	if token == "" {
-		writeAPIError(w, http.StatusUnauthorized, "missing bearer token")
+		token = SessionCookie(r)
+	}
+	if token == "" {
+		writeAPIError(w, http.StatusUnauthorized, "missing session credentials")
 		return nil, false
 	}
 	sess, err := h.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
@@ -656,7 +682,8 @@ func (h *Handler) allowAPIOrigin(w http.ResponseWriter, r *http.Request) bool {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-CSRF-Token")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Max-Age", "300")
 			return true
 		}
@@ -753,8 +780,16 @@ type internalAuditEventRequest struct {
 }
 
 func (h *Handler) verifyInternalToken(next http.Handler) http.Handler {
+	return h.verifyConfiguredToken(next, "AUTH_INTERNAL_TOKEN")
+}
+
+func (h *Handler) verifySessionInternalToken(next http.Handler) http.Handler {
+	return h.verifyConfiguredToken(next, "AUTH_SESSION_INTERNAL_TOKEN")
+}
+
+func (h *Handler) verifyConfiguredToken(next http.Handler, envName string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		expected := os.Getenv("AUTH_INTERNAL_TOKEN")
+		expected := os.Getenv(envName)
 		if expected == "" {
 			writeAPIError(w, http.StatusUnauthorized, "internal token not configured")
 			return
@@ -778,6 +813,34 @@ func (h *Handler) InternalSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := h.store.GetSessionByTokenHash(r.Context(), tokenHash)
 	if err != nil {
 		log.Printf("InternalSession GetSessionByTokenHash error: %v", err)
+		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	if sess == nil {
+		writeAPIError(w, http.StatusUnauthorized, "invalid session")
+		return
+	}
+
+	writeAPIJSON(w, http.StatusOK, internalSessionResponse{
+		UserID:    sess.UserID,
+		Email:     sess.Email,
+		IsAdmin:   sess.IsAdmin,
+		ExpiresAt: sess.ExpiresAt,
+	})
+}
+
+// InternalCookieSession validates the browser session cookie for trusted
+// application backends. The raw cookie never appears in a query string.
+func (h *Handler) InternalCookieSession(w http.ResponseWriter, r *http.Request) {
+	token := SessionCookie(r)
+	if token == "" {
+		writeAPIError(w, http.StatusUnauthorized, "missing session cookie")
+		return
+	}
+
+	sess, err := h.store.GetSessionByTokenHash(r.Context(), HashSessionToken(token))
+	if err != nil {
+		log.Printf("InternalCookieSession GetSessionByTokenHash error: %v", err)
 		writeAPIError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}

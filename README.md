@@ -4,9 +4,9 @@ A small Kubernetes-based web process manager. It provides a web dashboard to reg
 
 ## Architecture
 
-- **Control plane**: `zlUbuntu` (x86_64)
-- **Worker**: `rlLocal` (ARM64 Raspberry Pi) + future workers
-- **Ingress**: `ingress-nginx` on `zlUbuntu`
+- **Control plane**: local Kubernetes cluster (typically x86_64)
+- **Workers**: optional local cluster workers
+- **Ingress**: local `ingress-nginx`
 - **TLS**: `cert-manager` + Let's Encrypt HTTP-01 (public) / self-signed (local)
 - **Dashboard**: Go + HTMX, running inside the cluster
 - **Auth**: central auth service in `nacfson-auth`, backed by Postgres in `nacfson-auth`
@@ -32,7 +32,7 @@ ProcessManager/
 │   ├── manager/             # Manager Deployment/RBAC/Ingress
 │   ├── project-pn/          # Project PN manifests
 │   ├── portfolio-web/       # Portfolio Web manifests
-│   ├── registry/            # Optional local insecure registry
+│   ├── registry/            # Optional development registry
 │   └── debug/               # One-off cluster helpers
 └── scripts/                 # Cluster bootstrap and deploy scripts
 ```
@@ -47,81 +47,71 @@ The dashboard expects either:
 - A valid `~/.kube/config` pointing at a cluster, or
 - To be run inside a pod with a ServiceAccount.
 
-## Remote Compose (single instance / central auth)
+## Optional Compose Deployment
 
-For a private cloud VM without the home-lab Kubernetes nodes, use Docker Compose:
+For a local single-instance deployment without Kubernetes:
 
 ```bash
-# pull published image (or ./scripts/push-ghcr.sh to rebuild/publish)
-docker pull ghcr.io/nacfson/processmanager:latest
-cp .env.example .env && chmod 600 .env    # or Bitwarden: ./scripts/remote-up.sh --bws
-./scripts/remote-up.sh
+cp .env.example .env
+chmod 600 .env
+docker compose pull
+docker compose up -d
 ```
 
-See [deploy/README.md](deploy/README.md) for Bitwarden injection, GHCR push, and consumer app wiring.
+See [deploy/README.md](deploy/README.md) for Compose configuration and
+consumer-app wiring.
 
 ## Build & Push Image
 
-### Local registry (home lab)
-
 ```bash
-# Build and push a multi-arch image (linux/amd64 + linux/arm64) to GitHub Container Registry
-echo "$GHCR_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
+# Authenticate to GitHub Container Registry.
+export GHCR_USERNAME=nacfson
+export GHCR_TOKEN='your-github-container-registry-token'
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+
+# Build and push the multi-arch ProcessManager image.
 docker buildx build --platform linux/amd64,linux/arm64 \
   -t ghcr.io/nacfson/processmanager:latest --push .
 ```
 
-Deployments pull `ghcr.io/nacfson/processmanager:latest` (auth-service and manager). The package is private — create a pull secret in each namespace:
+The Auth and Manager deployments pull `ghcr.io/nacfson/processmanager:latest`.
+Before applying them, create the private-package pull secret in both namespaces:
 
 ```bash
 for ns in nacfson-auth nacfson-personal; do
   kubectl create secret docker-registry ghcr-pull \
     --docker-server=ghcr.io \
-    --docker-username=nacfson \
+    --docker-username="$GHCR_USERNAME" \
     --docker-password="$GHCR_TOKEN" \
     -n "$ns" \
     --dry-run=client -o yaml | kubectl apply -f -
 done
 ```
 
-### GHCR (cloud / remote)
-
-```bash
-# Multi-arch (amd64 + arm64) — recommended for mixed or ARM hosts
-export GHCR_TOKEN=ghp_...   # PAT with write:packages
-./scripts/push-ghcr.sh
-
-# Or a specific version tag
-./scripts/push-ghcr.sh v0.1.0
-```
-
-Then on the remote host set `PROCESSMANAGER_IMAGE=ghcr.io/nacfson/processmanager:latest` in `.env` (or Bitwarden) and run Compose / `./scripts/deploy-auth-remote.sh`.
+`scripts/deploy-auth.sh` performs the login, multi-arch build, pull-secret
+creation, and deployment steps together when `GHCR_TOKEN` is set.
 
 ## Set Up the Cluster
 
-### 1. Prepare both servers
+The deployment is designed to run from a local machine against a local
+Kubernetes cluster. If a local cluster and kubeconfig already exist, skip the
+bootstrap scripts and continue with the add-on and deployment steps.
 
-On `zlUbuntu` (as root or with sudo):
-
-```bash
-./scripts/bootstrap-common.sh
-```
-
-On `rlLocal` (as root or with sudo):
+### 1. Prepare the local machine
 
 ```bash
 ./scripts/bootstrap-common.sh
 ```
 
-### 2. Initialize control plane on `zlUbuntu`
+### 2. Initialize a local control plane (optional)
 
 ```bash
-CONTROL_PLANE_IP=192.168.219.100 ./scripts/bootstrap-control-plane.sh
+CONTROL_PLANE_IP=<LOCAL_CONTROL_PLANE_IP> ./scripts/bootstrap-control-plane.sh
 ```
 
-Save the join command printed at the end.
+Use the local cluster's kubeconfig after initialization.
 
-### 3. Join `rlLocal` as worker
+### 3. Add an optional local worker
 
 ```bash
 JOIN_COMMAND='kubeadm join ...' ./scripts/bootstrap-worker.sh
@@ -161,7 +151,7 @@ This creates:
 Add to your local `/etc/hosts`:
 
 ```text
-192.168.219.100 manager.nacfson.cloud auth.nacfson.cloud pn.nacfson.cloud portfolio.nacfson.cloud
+<LOCAL_INGRESS_IP> manager.nacfson.cloud auth.nacfson.cloud pn.nacfson.cloud portfolio.nacfson.cloud
 ```
 
 Sign in at `https://auth.nacfson.cloud/login` by entering the bootstrap admin email from `k8s/auth/bootstrap-secret.yaml`. A one-time magic link is emailed (or shown on-screen when SMTP is not configured).
@@ -181,7 +171,7 @@ All Postgres databases use Kubernetes PVCs provisioned by `local-path-provisione
 | auth_db | `nacfson-auth` | `data-auth-db-0` | 2Gi | Users, sessions, projects, memberships |
 | shared app DB | `nacfson-data` | `data-shared-app-db-0` | 10Gi | One DB/role per project created by the manager |
 
-Because `local-path` stores data on the node disk (`/opt/local-path-provisioner/...`), all persistent data is tied to `zlUbuntu`. There is currently no replication or automated backup.
+Because `local-path` stores data on the node disk (`/opt/local-path-provisioner/...`), all persistent data is tied to the local cluster node. There is currently no replication or automated backup.
 
 ## Registering a Process
 
@@ -197,7 +187,7 @@ Processes are scoped to a project and created in the project's configured namesp
 | Image | `ghcr.io/nacfson/portfolioweb:latest` |
 | Port | `8080` |
 | Replicas | `1` |
-| Arch | `arm64` (for `rlLocal`) or `amd64` (for `zlUbuntu`) |
+| Arch | `amd64` or `arm64`, depending on the target worker |
 | Memory Limit | `256Mi` |
 
 The manager creates a Deployment, Service, and Ingress with TLS and auth annotations in the project's namespace.
@@ -206,8 +196,8 @@ The dashboard no longer uses a single global `-namespace` flag. Each project's `
 
 ## Adding a Worker Later
 
-1. Run `bootstrap-common.sh` on the new server.
-2. Generate a fresh join token on the control plane:
+1. Run `bootstrap-common.sh` on the local worker.
+2. Generate a fresh join token on the local control plane:
    ```bash
    kubeadm token create --print-join-command
    ```
@@ -215,7 +205,6 @@ The dashboard no longer uses a single global `-namespace` flag. Each project's `
 
 ## Notes
 
-- `rlLocal` has only 905 MB RAM, so only lightweight pods should run there.
-- Use `nodeSelector: kubernetes.io/arch: arm64` to pin workloads to `rlLocal`.
+- Use `nodeSelector: kubernetes.io/arch` to pin workloads to a specific local worker when needed.
 - Build multi-arch images when a service must run on both architectures.
 - The central auth service is a single point of failure; plan to run 2+ replicas for production use.

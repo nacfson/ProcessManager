@@ -52,7 +52,7 @@ func TestInternalAPI(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	_, tokenHash, err := NewSessionToken()
+	sessionToken, tokenHash, err := NewSessionToken()
 	if err != nil {
 		t.Fatalf("new session token: %v", err)
 	}
@@ -73,6 +73,8 @@ func TestInternalAPI(t *testing.T) {
 
 	internalToken := "test-secret-token"
 	t.Setenv("AUTH_INTERNAL_TOKEN", internalToken)
+	sessionInternalToken := "test-session-secret-token"
+	t.Setenv("AUTH_SESSION_INTERNAL_TOKEN", sessionInternalToken)
 
 	// Helper to send request and return response recorder
 	sendReq := func(method, path string, body []byte, token string, cookie *http.Cookie) *httptest.ResponseRecorder {
@@ -122,6 +124,37 @@ func TestInternalAPI(t *testing.T) {
 		}
 		if resp["email"] != email {
 			t.Errorf("expected email %s, got %v", email, resp["email"])
+		}
+	})
+
+	t.Run("GET /api/internal/cookie-session", func(t *testing.T) {
+		rec := sendReq(
+			http.MethodGet,
+			"/api/internal/cookie-session",
+			nil,
+			sessionInternalToken,
+			&http.Cookie{Name: SessionCookieName, Value: sessionToken},
+		)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+		}
+		var resp map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode JSON: %v", err)
+		}
+		if resp["user_id"] != user.ID {
+			t.Errorf("expected user_id %s, got %v", user.ID, resp["user_id"])
+		}
+
+		rec = sendReq(
+			http.MethodGet,
+			"/api/internal/cookie-session",
+			nil,
+			sessionInternalToken,
+			nil,
+		)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("missing cookie status = %d, want %d", rec.Code, http.StatusUnauthorized)
 		}
 	})
 

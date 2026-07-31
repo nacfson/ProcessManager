@@ -3,35 +3,44 @@ set -euo pipefail
 
 # Deploys the central auth service, shared app DB, and manager RBAC/secret updates.
 # Run from the project root.
-# Builds and pushes ghcr.io/nacfson/processmanager:latest (requires docker login to ghcr.io).
+# Builds and pushes ghcr.io/nacfson/processmanager:latest.
 # Magic-link login requires a working SMTP relay configured in k8s/auth/smtp-secret.yaml.
+# Requires GHCR_TOKEN with package write/read access and kubectl access to the cluster.
 
 IMAGE_TAG="${IMAGE_TAG:-ghcr.io/nacfson/processmanager:latest}"
+GHCR_USERNAME="${GHCR_USERNAME:-nacfson}"
 
-echo "==> Building and pushing multi-arch image ${IMAGE_TAG} (linux/amd64,linux/arm64)"
+if [[ -z "${GHCR_TOKEN:-}" ]]; then
+  echo "GHCR_TOKEN is required to publish and pull ${IMAGE_TAG}" >&2
+  exit 1
+fi
+
+echo "==> Logging into GitHub Container Registry"
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+
+echo "==> Building and pushing multi-arch image ${IMAGE_TAG}"
 docker buildx build --platform linux/amd64,linux/arm64 -t "${IMAGE_TAG}" --push .
 
 echo "==> Applying auth and data namespaces"
 kubectl apply -f k8s/auth/namespace.yaml
 kubectl apply -f k8s/data/namespace.yaml
 
-if [[ -n "${GHCR_TOKEN:-}" ]]; then
-  echo "==> Ensuring GHCR image pull secrets"
-  for ns in nacfson-auth nacfson-personal; do
-    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-    kubectl create secret docker-registry ghcr-pull \
-      --docker-server=ghcr.io \
-      --docker-username=nacfson \
-      --docker-password="$GHCR_TOKEN" \
-      -n "$ns" \
-      --dry-run=client -o yaml | kubectl apply -f -
-  done
-fi
+echo "==> Ensuring GHCR image pull secrets"
+for ns in nacfson-auth nacfson-personal; do
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create secret docker-registry ghcr-pull \
+    --docker-server=ghcr.io \
+    --docker-username="$GHCR_USERNAME" \
+    --docker-password="$GHCR_TOKEN" \
+    -n "$ns" \
+    --dry-run=client -o yaml | kubectl apply -f -
+done
 
 echo "==> Applying auth secrets and databases"
 kubectl apply -f k8s/auth/secret.yaml
 kubectl apply -f k8s/auth/bootstrap-secret.yaml
 kubectl apply -f k8s/auth/smtp-secret.yaml
+kubectl apply -f k8s/auth/session-secret.yaml
 kubectl apply -f k8s/auth/postgres.yaml
 kubectl apply -f k8s/data/secret.yaml
 kubectl apply -f k8s/data/postgres.yaml

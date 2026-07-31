@@ -123,6 +123,11 @@ spec:
                 secretKeyRef:
                   name: project-pn-secrets
                   key: CENTRAL_AUTH_INTERNAL_URL
+            - name: AUTH_SESSION_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: project-pn-secrets
+                  key: AUTH_SESSION_INTERNAL_TOKEN
             - name: SESSION_TTL
               value: "720h"
             - name: EMAIL_VERIFICATION_TTL

@@ -137,6 +137,7 @@
             <form method="POST" action="/magic">
                 <input type="hidden" name="token" value="{{.Token}}">
                 <input type="hidden" name="return_to" value="{{.ReturnTo}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <button type="submit">Continue</button>
             </form>
         </div>
