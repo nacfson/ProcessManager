@@ -36,7 +36,7 @@ func TestAPIAuthSessionLifecycle(t *testing.T) {
 	}
 
 	// TRUNCATE tables to be hermetic
-	_, err = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
+	_, err = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications, login_tokens CASCADE")
 	if err != nil {
 		t.Fatalf("truncate tables: %v", err)
 	}
@@ -206,327 +206,6 @@ func TestClientIPFallsBackToRemoteAddr(t *testing.T) {
 	}
 }
 
-func TestRegistrationAndVerificationFlow(t *testing.T) {
-	dsn := os.Getenv("AUTH_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTH_DATABASE_URL is not set")
-	}
-
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect auth db: %v", err)
-	}
-	defer pool.Close()
-
-	store := NewStore(pool)
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatalf("migrate auth db: %v", err)
-	}
-
-	// Real templates from "../../web/templates/*.html"
-	tmpl, err := template.New("").ParseGlob("../../web/templates/*.html")
-	if err != nil {
-		t.Fatalf("parse templates: %v", err)
-	}
-
-	parsedAllowedRedirect, _ := url.Parse("https://customproject.com/callback")
-	handler := &Handler{
-		store:            store,
-		cookieDomain:     "nacfson.cloud",
-		sessionTTL:      time.Hour,
-		tmpl:             tmpl,
-		allowedRedirects: []*url.URL{parsedAllowedRedirect},
-	}
-
-	// Clear DB
-	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
-
-	// 1. GET /register form rendering
-	req := httptest.NewRequest(http.MethodGet, "/register?rd=/dashboard", nil)
-	rec := httptest.NewRecorder()
-	handler.RegisterForm(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("RegisterForm status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if !strings.Contains(rec.Body.String(), "/dashboard") {
-		t.Errorf("RegisterForm rendered body missing return URL /dashboard")
-	}
-
-	// 2. POST /register validation checks
-	// Test case: empty email
-	form := url.Values{}
-	form.Set("email", "")
-	form.Set("password", "secret123")
-	form.Set("confirm_password", "secret123")
-	form.Set("return_to", "/dashboard")
-
-	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	handler.Register(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("Register empty email status = %d, want 302", rec.Code)
-	}
-	loc := rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=email+is+required") {
-		t.Errorf("Register redirect location does not complain about email: %q", loc)
-	}
-
-	// Test case: empty password
-	form.Set("email", "newuser@example.com")
-	form.Set("password", "")
-	form.Set("confirm_password", "secret123")
-	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	handler.Register(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("Register empty password status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=password+is+required") {
-		t.Errorf("Register redirect location does not complain about password: %q", loc)
-	}
-
-	// Test case: passwords do not match
-	form.Set("password", "secret123")
-	form.Set("confirm_password", "different")
-	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	handler.Register(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("Register password mismatch status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=passwords+do+not+match") {
-		t.Errorf("Register redirect location does not complain about password mismatch: %q", loc)
-	}
-
-	// 3. Successful registration
-	email := "verified-user@example.com"
-	form.Set("email", email)
-	form.Set("password", "correctpass")
-	form.Set("confirm_password", "correctpass")
-	form.Set("return_to", "/dashboard")
-
-	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	handler.Register(rec, req)
-
-	if rec.Code != http.StatusFound {
-		t.Fatalf("Register success status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "/verification-sent") {
-		t.Fatalf("Register redirect location does not point to verification-sent: %q", loc)
-	}
-
-	// Check user is created with IsVerified = false
-	u, err := store.GetUserByEmail(ctx, email)
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	if u == nil {
-		t.Fatalf("user was not created in DB")
-	}
-	if u.IsVerified {
-		t.Errorf("newly registered user is verified, want unverified")
-	}
-
-	// Extract token from redirect URL or DB
-	uUrl, err := url.Parse(loc)
-	if err != nil {
-		t.Fatalf("parse redirect URL: %v", err)
-	}
-	token := uUrl.Query().Get("token")
-	if token == "" {
-		t.Fatalf("missing token in redirect URL")
-	}
-
-	// Check token is in DB
-	ev, err := store.GetEmailVerification(ctx, token)
-	if err != nil {
-		t.Fatalf("GetEmailVerification: %v", err)
-	}
-	if ev == nil {
-		t.Fatalf("verification token was not found in DB")
-	}
-	if ev.UserID != u.ID {
-		t.Errorf("verification token belongs to user %q, want %q", ev.UserID, u.ID)
-	}
-
-	// 4. Render /verification-sent
-	req = httptest.NewRequest(http.MethodGet, "/verification-sent?token="+token+"&rd=/dashboard", nil)
-	rec = httptest.NewRecorder()
-	handler.VerificationSent(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("VerificationSent status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	// Since SMTP_HOST is not configured, it should contain the VerificationLink
-	if !strings.Contains(rec.Body.String(), "/verify-email?token="+token) {
-		t.Errorf("VerificationSent output missing verification link: %s", rec.Body.String())
-	}
-
-	// 5. Test unverified user login failure
-	// Web Login
-	loginForm := url.Values{}
-	loginForm.Set("email", email)
-	loginForm.Set("password", "correctpass")
-	loginForm.Set("return_to", "/dashboard")
-	req = httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(loginForm.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	handler.Login(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("Login for unverified user status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=email+not+verified") {
-		t.Errorf("Login redirect location does not complain about verification: %q", loc)
-	}
-
-	// API Login
-	loginBody := bytes.NewBufferString(`{"email":"` + email + `","password":"correctpass"}`)
-	req = httptest.NewRequest(http.MethodPost, "/api/auth/session", loginBody)
-	rec = httptest.NewRecorder()
-	handler.APILogin(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("APILogin for unverified user status = %d, want 401", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), "unverified email") {
-		t.Errorf("APILogin response body does not mention unverified email: %s", rec.Body.String())
-	}
-
-	// 6. Test Re-registration of unverified user (prevents deadlock)
-	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	handler.Register(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("Re-register unverified user status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "/verification-sent") {
-		t.Fatalf("Re-register redirect location does not point to verification-sent: %q", loc)
-	}
-
-	// Verify old token is deleted from DB
-	oldToken := token
-	oldEv, err := store.GetEmailVerification(ctx, oldToken)
-	if err != nil {
-		t.Fatalf("GetEmailVerification for old token: %v", err)
-	}
-	if oldEv != nil {
-		t.Errorf("old verification token was not deleted from DB after re-registration")
-	}
-
-	// Extract new token from redirect URL or DB
-	uUrl, err = url.Parse(loc)
-	if err != nil {
-		t.Fatalf("parse redirect URL: %v", err)
-	}
-	token = uUrl.Query().Get("token")
-	if token == "" {
-		t.Fatalf("missing token in redirect URL")
-	}
-
-	// 7. VerifyEmail handler
-	// Test case: missing token
-	req = httptest.NewRequest(http.MethodGet, "/verify-email", nil)
-	rec = httptest.NewRecorder()
-	handler.VerifyEmail(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("VerifyEmail missing token status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=invalid+or+expired+verification+token") {
-		t.Errorf("VerifyEmail missing token location wrong: %q", loc)
-	}
-
-	// Test case: invalid token
-	req = httptest.NewRequest(http.MethodGet, "/verify-email?token=invalidtoken", nil)
-	rec = httptest.NewRecorder()
-	handler.VerifyEmail(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("VerifyEmail invalid token status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=invalid+or+expired+verification+token") {
-		t.Errorf("VerifyEmail invalid token location wrong: %q", loc)
-	}
-
-	// Test case: valid token with whitelisted rd
-	req = httptest.NewRequest(http.MethodGet, "/verify-email?token="+token+"&rd=https://customproject.com/callback", nil)
-	rec = httptest.NewRecorder()
-	handler.VerifyEmail(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("VerifyEmail success status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	expectedRedirect := "https://customproject.com/callback"
-	if loc != expectedRedirect {
-		t.Errorf("VerifyEmail redirect to = %q, want %q", loc, expectedRedirect)
-	}
-
-	// Check user is verified in DB
-	u, err = store.GetUserByEmail(ctx, email)
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	if !u.IsVerified {
-		t.Errorf("user is still unverified after verification")
-	}
-
-	// Check token is deleted from DB
-	ev, err = store.GetEmailVerification(ctx, token)
-	if err != nil {
-		t.Fatalf("GetEmailVerification: %v", err)
-	}
-	if ev != nil {
-		t.Errorf("email verification token was not deleted from DB")
-	}
-
-	// Check session cookie is set
-	cookies := rec.Result().Cookies()
-	var foundSessCookie bool
-	for _, c := range cookies {
-		if c.Name == SessionCookieName {
-			foundSessCookie = true
-			if c.Value == "" {
-				t.Errorf("session cookie value is empty")
-			}
-		}
-	}
-	if !foundSessCookie {
-		t.Errorf("session cookie was not set after verification")
-	}
-
-	// 8. Test that verified user can now log in successfully
-	loginBody = bytes.NewBufferString(`{"email":"` + email + `","password":"correctpass"}`)
-	req = httptest.NewRequest(http.MethodPost, "/api/auth/session", loginBody)
-	rec = httptest.NewRecorder()
-	handler.APILogin(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("APILogin after verification status = %d, want 200", rec.Code)
-	}
-
-	// 9. Test Registration duplicate email error (for verified user)
-	req = httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec = httptest.NewRecorder()
-	handler.Register(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Errorf("Register duplicate email status = %d, want 302", rec.Code)
-	}
-	loc = rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=email+already+registered") {
-		t.Errorf("Register redirect location does not complain about duplicate email: %q", loc)
-	}
-}
-
 func TestLoginFormRedirectWhitelist(t *testing.T) {
 	dsn := os.Getenv("AUTH_DATABASE_URL")
 	if dsn == "" {
@@ -586,237 +265,6 @@ func TestLoginFormRedirectWhitelist(t *testing.T) {
 }
 
 
-func TestVerifyEmailAllowedRedirects(t *testing.T) {
-	dsn := os.Getenv("AUTH_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTH_DATABASE_URL is not set")
-	}
-
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect auth db: %v", err)
-	}
-	defer pool.Close()
-
-	store := NewStore(pool)
-	_ = store.Migrate(ctx)
-
-	// Clear DB
-	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
-
-	// Create an unverified user
-	user, err := store.CreateUser(ctx, "redirect-test@example.com", "hash", false, false)
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	// Create email verification
-	token := "valid-token-for-redirect"
-	err = store.CreateEmailVerification(ctx, user.ID, token, time.Now().Add(1*time.Hour))
-	if err != nil {
-		t.Fatalf("create email verification: %v", err)
-	}
-
-	// Parse allowed redirect
-	uRedirect, err := url.Parse("https://external.example.com/callback")
-	if err != nil {
-		t.Fatalf("parse redirect URL: %v", err)
-	}
-
-	handler := &Handler{
-		store:            store,
-		cookieDomain:     "nacfson.cloud",
-		sessionTTL:       time.Hour,
-		allowedRedirects: []*url.URL{uRedirect},
-	}
-
-	// Request with a whitelisted redirect URL that is external
-	req := httptest.NewRequest(http.MethodGet, "/verify-email?token="+token+"&rd=https://external.example.com/callback", nil)
-	rec := httptest.NewRecorder()
-	handler.VerifyEmail(rec, req)
-
-	if rec.Code != http.StatusFound {
-		t.Errorf("VerifyEmail status = %d, want 302", rec.Code)
-	}
-	loc := rec.Header().Get("Location")
-	if loc != "https://external.example.com/callback" {
-		t.Errorf("expected redirect to https://external.example.com/callback, got %q", loc)
-	}
-}
-
-func TestRegistrationRateLimiting(t *testing.T) {
-	dsn := os.Getenv("AUTH_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTH_DATABASE_URL is not set")
-	}
-
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect auth db: %v", err)
-	}
-	defer pool.Close()
-
-	store := NewStore(pool)
-	_ = store.Migrate(ctx)
-
-	// Clear DB
-	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
-
-	// Set up loginLimiter with a very low limit (e.g. 1 max attempt)
-	limiter := NewLoginLimiter(1, 1*time.Minute)
-
-	handler := &Handler{
-		store:        store,
-		cookieDomain: "nacfson.cloud",
-		sessionTTL:   time.Hour,
-		loginLimiter: limiter,
-	}
-
-	email := "limiter-test@example.com"
-
-	// First registration attempt - fails validation (password too short)
-	form := url.Values{}
-	form.Set("email", email)
-	form.Set("password", "short")
-	form.Set("confirm_password", "short")
-
-	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	handler.Register(rec, req)
-
-	if rec.Code != http.StatusFound {
-		t.Errorf("expected 302 redirect for validation error, got %d", rec.Code)
-	}
-	loc := rec.Header().Get("Location")
-	if !strings.Contains(loc, "error=password+must+be+at+least+8+characters") {
-		t.Errorf("expected password validation error, got %q", loc)
-	}
-
-	// Second registration attempt - should be rate limited immediately
-	form.Set("password", "longenoughpassword")
-	form.Set("confirm_password", "longenoughpassword")
-	req2 := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec2 := httptest.NewRecorder()
-	handler.Register(rec2, req2)
-
-	if rec2.Code != http.StatusFound {
-		t.Errorf("expected 302 redirect for rate limit, got %d", rec2.Code)
-	}
-	loc2 := rec2.Header().Get("Location")
-	if !strings.Contains(loc2, "error=too+many+attempts") {
-		t.Errorf("expected rate limited error, got %q", loc2)
-	}
-}
-
-func TestRegisterUnverifiedEmailRecreatesVerification(t *testing.T) {
-	dsn := os.Getenv("AUTH_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("AUTH_DATABASE_URL is not set")
-	}
-
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect auth db: %v", err)
-	}
-	defer pool.Close()
-
-	store := NewStore(pool)
-	_ = store.Migrate(ctx)
-
-	// Clear DB
-	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications CASCADE")
-
-	handler := &Handler{
-		store:        store,
-		cookieDomain: "nacfson.cloud",
-		sessionTTL:   time.Hour,
-	}
-
-	email := "unverified-recreate@example.com"
-
-	// 1. Initial register
-	form := url.Values{}
-	form.Set("email", email)
-	form.Set("password", "firstpassword")
-	form.Set("confirm_password", "firstpassword")
-
-	req1 := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form.Encode()))
-	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec1 := httptest.NewRecorder()
-	handler.Register(rec1, req1)
-
-	if rec1.Code != http.StatusFound {
-		t.Fatalf("initial Register status = %d, want 302", rec1.Code)
-	}
-	loc1 := rec1.Header().Get("Location")
-	uUrl1, _ := url.Parse(loc1)
-	token1 := uUrl1.Query().Get("token")
-	if token1 == "" {
-		t.Fatalf("expected verification token")
-	}
-
-	// Verify token is in DB
-	ev1, err := store.GetEmailVerification(ctx, token1)
-	if err != nil || ev1 == nil {
-		t.Fatalf("expected verification to exist in DB")
-	}
-
-	// 2. Register again with same email but new password
-	form2 := url.Values{}
-	form2.Set("email", email)
-	form2.Set("password", "secondpassword")
-	form2.Set("confirm_password", "secondpassword")
-
-	req2 := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(form2.Encode()))
-	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec2 := httptest.NewRecorder()
-	handler.Register(rec2, req2)
-
-	if rec2.Code != http.StatusFound {
-		t.Fatalf("second Register status = %d, want 302", rec2.Code)
-	}
-	loc2 := rec2.Header().Get("Location")
-	uUrl2, _ := url.Parse(loc2)
-	token2 := uUrl2.Query().Get("token")
-	if token2 == "" {
-		t.Fatalf("expected new verification token")
-	}
-
-	if token1 == token2 {
-		t.Errorf("expected different verification token, got same: %s", token1)
-	}
-
-	// Verify old token is deleted
-	ev1Check, err := store.GetEmailVerification(ctx, token1)
-	if err != nil {
-		t.Fatalf("GetEmailVerification error: %v", err)
-	}
-	if ev1Check != nil {
-		t.Errorf("expected old verification token to be deleted")
-	}
-
-	// Verify new token is in DB
-	ev2, err := store.GetEmailVerification(ctx, token2)
-	if err != nil || ev2 == nil {
-		t.Fatalf("expected new verification token to exist in DB")
-	}
-
-	// Verify password hash is updated and works with second password
-	user, err := store.GetUserByEmail(ctx, email)
-	if err != nil {
-		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte("secondpassword"))
-	if err != nil {
-		t.Errorf("password was not updated to secondpassword: %v", err)
-	}
-}
-
 func TestVerifyInternalToken_UsesConstantTimeCompare(t *testing.T) {
 	t.Setenv("AUTH_INTERNAL_TOKEN", "test-secret-token")
 
@@ -852,5 +300,319 @@ func TestVerifyInternalToken_UsesConstantTimeCompare(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("missing token: expected 401, got %d", rec.Code)
+	}
+}
+
+
+func TestMagicLinkLoginFlow(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect auth db: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewStore(pool)
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("migrate auth db: %v", err)
+	}
+
+	tmpl, err := template.New("").ParseGlob("../../web/templates/*.html")
+	if err != nil {
+		t.Fatalf("parse templates: %v", err)
+	}
+
+	parsedAllowedRedirect, _ := url.Parse("https://customproject.com/callback")
+	handler := &Handler{
+		store:            store,
+		cookieDomain:     "nacfson.cloud",
+		sessionTTL:       time.Hour,
+		magicLinkTTL:     15 * time.Minute,
+		tmpl:             tmpl,
+		allowedRedirects: []*url.URL{parsedAllowedRedirect},
+		mailer:           NewMailer("nacfson.cloud"),
+	}
+
+	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications, login_tokens CASCADE")
+
+	// Invalid email
+	form := url.Values{}
+	form.Set("email", "not-an-email")
+	form.Set("return_to", "https://customproject.com/callback")
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "auth.nacfson.cloud"
+	rec := httptest.NewRecorder()
+	handler.RequestMagicLink(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("invalid email status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("Location"), "error=invalid+email+address") {
+		t.Fatalf("expected invalid email error, got %q", rec.Header().Get("Location"))
+	}
+
+	// Unknown email creates user + token
+	email := "magic-new@example.com"
+	form = url.Values{}
+	form.Set("email", email)
+	form.Set("return_to", "https://customproject.com/callback")
+	req = httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "auth.nacfson.cloud"
+	rec = httptest.NewRecorder()
+	handler.RequestMagicLink(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("RequestMagicLink status = %d", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "/link-sent") {
+		t.Fatalf("expected /link-sent redirect, got %q", loc)
+	}
+	u, err := store.GetUserByEmail(ctx, email)
+	if err != nil || u == nil {
+		t.Fatalf("expected user created")
+	}
+	if u.IsVerified {
+		t.Fatalf("new user should be unverified")
+	}
+	token := ""
+	if uLoc, err := url.Parse(loc); err == nil {
+		token = uLoc.Query().Get("token")
+	}
+	if token == "" {
+		t.Fatalf("expected dev-fallback token in redirect")
+	}
+
+	// GET /magic does not consume
+	req = httptest.NewRequest(http.MethodGet, "/magic?token="+token+"&rd=https://customproject.com/callback", nil)
+	rec = httptest.NewRecorder()
+	handler.MagicForm(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("MagicForm status = %d", rec.Code)
+	}
+	lt, err := store.ConsumeLoginToken(ctx, "probe")
+	_ = lt
+	// token still present: LatestLoginTokenCreatedAt non-nil
+	latest, err := store.LatestLoginTokenCreatedAt(ctx, u.ID)
+	if err != nil || latest == nil {
+		t.Fatalf("token should still exist after GET /magic")
+	}
+
+	// Resend throttle: immediate second request creates no new token time advance? same created_at window
+	countBefore := latest
+	form2 := url.Values{}
+	form2.Set("email", email)
+	form2.Set("return_to", "https://customproject.com/callback")
+	req = httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form2.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "auth.nacfson.cloud"
+	rec = httptest.NewRecorder()
+	handler.RequestMagicLink(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("throttled RequestMagicLink status = %d", rec.Code)
+	}
+	latest2, _ := store.LatestLoginTokenCreatedAt(ctx, u.ID)
+	if latest2 == nil || !latest2.Equal(*countBefore) {
+		t.Fatalf("expected throttled resend to keep existing token timestamp")
+	}
+
+	// Consume
+	cform := url.Values{}
+	cform.Set("token", token)
+	cform.Set("return_to", "https://customproject.com/callback")
+	req = httptest.NewRequest(http.MethodPost, "/magic", strings.NewReader(cform.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	handler.MagicConsume(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("MagicConsume status = %d", rec.Code)
+	}
+	if rec.Header().Get("Location") != "https://customproject.com/callback" {
+		t.Fatalf("MagicConsume redirect = %q", rec.Header().Get("Location"))
+	}
+	u, _ = store.GetUserByEmail(ctx, email)
+	if !u.IsVerified {
+		t.Fatalf("user should be verified after consume")
+	}
+	foundCookie := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			foundCookie = true
+			if !c.HttpOnly || !c.Secure {
+				t.Fatalf("cookie flags HttpOnly=%v Secure=%v", c.HttpOnly, c.Secure)
+			}
+		}
+	}
+	if !foundCookie {
+		t.Fatalf("expected session cookie")
+	}
+
+	// Reuse fails
+	req = httptest.NewRequest(http.MethodPost, "/magic", strings.NewReader(cform.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	handler.MagicConsume(rec, req)
+	if !strings.Contains(rec.Header().Get("Location"), "link+expired+or+already+used") {
+		t.Fatalf("expected reused token error, got %q", rec.Header().Get("Location"))
+	}
+
+	// Legacy redirects
+	req = httptest.NewRequest(http.MethodGet, "/register?rd=/dashboard", nil)
+	rec = httptest.NewRecorder()
+	handler.redirectRegisterToLogin(rec, req)
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("register redirect status = %d", rec.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/verify-email", nil)
+	rec = httptest.NewRecorder()
+	handler.redirectVerifyEmailToLogin(rec, req)
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("verify-email redirect status = %d", rec.Code)
+	}
+}
+
+func TestMagicLinkRateLimit(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	store := NewStore(pool)
+	_ = store.Migrate(ctx)
+	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications, login_tokens CASCADE")
+
+	limiter := NewLoginLimiter(1, time.Minute)
+	handler := &Handler{
+		store:        store,
+		cookieDomain: "nacfson.cloud",
+		sessionTTL:   time.Hour,
+		magicLinkTTL: 15 * time.Minute,
+		loginLimiter: limiter,
+		mailer:       NewMailer("nacfson.cloud"),
+	}
+
+	form := url.Values{}
+	form.Set("email", "rate@example.com")
+	form.Set("return_to", "/")
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "auth.nacfson.cloud"
+	rec := httptest.NewRecorder()
+	handler.RequestMagicLink(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("first request status = %d", rec.Code)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2.Host = "auth.nacfson.cloud"
+	rec2 := httptest.NewRecorder()
+	handler.RequestMagicLink(rec2, req2)
+	if !strings.Contains(rec2.Header().Get("Location"), "too+many+attempts") {
+		t.Fatalf("expected rate limit, got %q", rec2.Header().Get("Location"))
+	}
+}
+
+func TestAPIMagicLink(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	store := NewStore(pool)
+	_ = store.Migrate(ctx)
+	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications, login_tokens CASCADE")
+
+	handler := &Handler{
+		store:             store,
+		cookieDomain:      "nacfson.cloud",
+		sessionTTL:        time.Hour,
+		magicLinkTTL:      15 * time.Minute,
+		apiAllowedOrigins: []string{"https://pn.nacfson.cloud"},
+		mailer:            NewMailer("nacfson.cloud"),
+	}
+
+	body := strings.NewReader(`{"email":"api-magic@example.com","redirect":"https://manager.nacfson.cloud"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/magic-link", body)
+	req.Header.Set("Origin", "https://pn.nacfson.cloud")
+	req.Host = "auth.nacfson.cloud"
+	rec := httptest.NewRecorder()
+	handler.APIMagicLink(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("APIMagicLink status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	bad := httptest.NewRequest(http.MethodPost, "/api/auth/magic-link", strings.NewReader(`{"email":"x@example.com"}`))
+	bad.Header.Set("Origin", "https://evil.example")
+	bad.Host = "auth.nacfson.cloud"
+	badRec := httptest.NewRecorder()
+	handler.APIMagicLink(badRec, bad)
+	if badRec.Code != http.StatusForbidden {
+		t.Fatalf("disallowed origin status = %d", badRec.Code)
+	}
+}
+
+func TestMagicConsumeRejectsMaliciousRedirect(t *testing.T) {
+	dsn := os.Getenv("AUTH_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AUTH_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	store := NewStore(pool)
+	_ = store.Migrate(ctx)
+	_, _ = pool.Exec(ctx, "TRUNCATE users, sessions, projects, project_members, audit_events, email_verifications, login_tokens CASCADE")
+
+	user, err := store.CreateUser(ctx, "redir@example.com", "", false, false)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	raw, hash, err := NewAuthCode()
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	if err := store.CreateLoginToken(ctx, user.ID, hash, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	handler := &Handler{
+		store:        store,
+		cookieDomain: "nacfson.cloud",
+		sessionTTL:   time.Hour,
+		magicLinkTTL: 15 * time.Minute,
+		mailer:       NewMailer("nacfson.cloud"),
+	}
+	form := url.Values{}
+	form.Set("token", raw)
+	form.Set("return_to", "https://evil.example/phish")
+	req := httptest.NewRequest(http.MethodPost, "/magic", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.MagicConsume(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	loc := rec.Header().Get("Location")
+	if strings.Contains(loc, "evil.example") {
+		t.Fatalf("malicious redirect allowed: %q", loc)
 	}
 }

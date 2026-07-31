@@ -6,21 +6,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"processmanager/internal/auth"
 	"processmanager/internal/db"
 
-	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
-type AdminUser struct {
-	Email    string `yaml:"email"`
-	Password string `yaml:"password"`
-}
-
 type adminList struct {
-	Admins []AdminUser `yaml:"admins"`
+	Admins []string `yaml:"admins"`
 }
 
 func main() {
@@ -41,7 +36,6 @@ func main() {
 	if err := yaml.Unmarshal(data, &list); err != nil {
 		log.Fatalf("parse admins yaml: %v", err)
 	}
-	admins := list.Admins
 
 	ctx := context.Background()
 	pool, err := db.NewPool(ctx, *dsn)
@@ -55,36 +49,16 @@ func main() {
 		log.Fatalf("migrate auth db: %v", err)
 	}
 
-	for _, a := range admins {
-		if a.Email == "" || a.Password == "" {
-			log.Printf("skipping admin with empty email or password")
+	for _, email := range list.Admins {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email == "" {
+			log.Printf("skipping empty admin email")
 			continue
 		}
-
-		hash, err := bcrypt.GenerateFromPassword([]byte(a.Password), bcrypt.DefaultCost)
-		if err != nil {
-			log.Fatalf("hash password for %s: %v", a.Email, err)
+		if err := store.EnsureAdmin(ctx, email); err != nil {
+			log.Fatalf("ensure admin %s: %v", email, err)
 		}
-
-		existing, err := store.GetUserByEmail(ctx, a.Email)
-		if err != nil {
-			log.Fatalf("lookup user %s: %v", a.Email, err)
-		}
-
-		if existing == nil {
-			if _, err := store.CreateUser(ctx, a.Email, string(hash), true, true); err != nil {
-				log.Fatalf("create admin %s: %v", a.Email, err)
-			}
-			log.Printf("created admin %s", a.Email)
-		} else {
-			// Update password hash and ensure admin flag.
-			if _, err := pool.Exec(ctx,
-				`UPDATE users SET password_hash = $1, is_admin = true WHERE email = $2`,
-				string(hash), a.Email); err != nil {
-				log.Fatalf("update admin %s: %v", a.Email, err)
-			}
-			log.Printf("updated admin %s", a.Email)
-		}
+		log.Printf("ensured admin %s", email)
 	}
 
 	fmt.Println("admin sync complete")

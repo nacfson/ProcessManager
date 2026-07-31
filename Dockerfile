@@ -6,7 +6,7 @@ COPY . .
 ENV CGO_ENABLED=0
 # BuildKit/buildx sets TARGETOS/TARGETARCH per --platform (amd64, arm64, ...).
 ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/manager ./cmd/manager \
     && GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/auth-service ./cmd/auth \
     && GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/sync-admins ./cmd/sync-admins

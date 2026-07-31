@@ -1,5 +1,7 @@
 # Compiled binaries
 /auth
+/manager
+/sync-admins
 tmp/
 
 # OS files
