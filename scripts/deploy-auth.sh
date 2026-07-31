@@ -3,25 +3,37 @@ set -euo pipefail
 
 # Deploys the central auth service, shared app DB, and manager RBAC/secret updates.
 # Run from the project root.
-# Prerequisite: a container registry reachable from the cluster at 192.168.219.100:5000.
-# If you do not have one, run: kubectl apply -f k8s/registry/deployment.yaml
+# Builds and pushes ghcr.io/nacfson/processmanager:latest.
+# Requires GHCR_TOKEN with package write/read access and kubectl access to the cluster.
 
-REGISTRY="192.168.219.100:5000"
-IMAGE_TAG="${REGISTRY}/processmanager:latest"
+IMAGE_TAG="${IMAGE_TAG:-ghcr.io/nacfson/processmanager:latest}"
+GHCR_USERNAME="${GHCR_USERNAME:-nacfson}"
 
-# Ensure the local insecure registry exists.
-if ! curl -sf "http://${REGISTRY}/v2/_catalog" >/dev/null 2>&1; then
-  echo "==> Registry not reachable at ${REGISTRY}; deploying registry pod"
-  kubectl apply -f k8s/registry/deployment.yaml
-  kubectl rollout status deployment/registry -n nacfson-registry --timeout=120s
+if [[ -z "${GHCR_TOKEN:-}" ]]; then
+  echo "GHCR_TOKEN is required to publish and pull ${IMAGE_TAG}" >&2
+  exit 1
 fi
 
-echo "==> Building and pushing image ${IMAGE_TAG}"
-docker buildx build --platform linux/amd64 -t "${IMAGE_TAG}" --push .
+echo "==> Logging into GitHub Container Registry"
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+
+echo "==> Building and pushing multi-arch image ${IMAGE_TAG}"
+docker buildx build --platform linux/amd64,linux/arm64 -t "${IMAGE_TAG}" --push .
 
 echo "==> Applying auth and data namespaces"
 kubectl apply -f k8s/auth/namespace.yaml
 kubectl apply -f k8s/data/namespace.yaml
+
+echo "==> Ensuring GHCR image pull secrets"
+for ns in nacfson-auth nacfson-personal; do
+  kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create secret docker-registry ghcr-pull \
+    --docker-server=ghcr.io \
+    --docker-username="$GHCR_USERNAME" \
+    --docker-password="$GHCR_TOKEN" \
+    -n "$ns" \
+    --dry-run=client -o yaml | kubectl apply -f -
+done
 
 echo "==> Applying auth secrets and databases"
 kubectl apply -f k8s/auth/secret.yaml

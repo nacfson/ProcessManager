@@ -50,17 +50,32 @@ The dashboard expects either:
 ## Build & Push Image
 
 ```bash
-# Build for the cluster (image is pushed to the local registry at 192.168.219.100:5000)
-docker buildx build --platform linux/amd64 -t 192.168.219.100:5000/processmanager:latest --push .
+# Authenticate to GitHub Container Registry.
+export GHCR_USERNAME=nacfson
+export GHCR_TOKEN='your-github-container-registry-token'
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+
+# Build and push the multi-arch ProcessManager image.
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/nacfson/processmanager:latest --push .
 ```
 
-If Docker Desktop refuses the insecure registry, add this to `~/.docker/daemon.json` and restart Docker Desktop:
+The Auth and Manager deployments pull `ghcr.io/nacfson/processmanager:latest`.
+Before applying them, create the private-package pull secret in both namespaces:
 
-```json
-{
-  "insecure-registries": ["192.168.219.100:5000"]
-}
+```bash
+for ns in nacfson-auth nacfson-personal; do
+  kubectl create secret docker-registry ghcr-pull \
+    --docker-server=ghcr.io \
+    --docker-username="$GHCR_USERNAME" \
+    --docker-password="$GHCR_TOKEN" \
+    -n "$ns" \
+    --dry-run=client -o yaml | kubectl apply -f -
+done
 ```
+
+`scripts/deploy-auth.sh` performs the login, multi-arch build, pull-secret
+creation, and deployment steps together when `GHCR_TOKEN` is set.
 
 ## Set Up the Cluster
 
