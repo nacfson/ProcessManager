@@ -97,6 +97,22 @@ func TestAPIAuthSessionLifecycle(t *testing.T) {
 		t.Fatalf("session user = %#v, want id %q email %q", session.User, user.ID, email)
 	}
 
+	cookieSessionReq := httptest.NewRequest(http.MethodGet, "/api/auth/session", nil)
+	cookieSessionReq.AddCookie(&http.Cookie{Name: SessionCookieName, Value: login.Token})
+	cookieSessionRec := httptest.NewRecorder()
+	handler.APISession(cookieSessionRec, cookieSessionReq)
+	if cookieSessionRec.Code != http.StatusOK {
+		t.Fatalf("cookie APISession status = %d body = %s", cookieSessionRec.Code, cookieSessionRec.Body.String())
+	}
+
+	cookieMeReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	cookieMeReq.AddCookie(&http.Cookie{Name: SessionCookieName, Value: login.Token})
+	cookieMeRec := httptest.NewRecorder()
+	handler.APIMe(cookieMeRec, cookieMeReq)
+	if cookieMeRec.Code != http.StatusOK {
+		t.Fatalf("cookie APIMe status = %d body = %s", cookieMeRec.Code, cookieMeRec.Body.String())
+	}
+
 	meReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
 	meReq.Header.Set("Authorization", "Bearer "+login.Token)
 	meRec := httptest.NewRecorder()
@@ -127,6 +143,26 @@ func TestAPIAuthSessionLifecycle(t *testing.T) {
 	handler.APISession(afterLogoutRec, afterLogoutReq)
 	if afterLogoutRec.Code != http.StatusUnauthorized {
 		t.Fatalf("APISession after logout status = %d body = %s", afterLogoutRec.Code, afterLogoutRec.Body.String())
+	}
+
+	cookieToken, cookieHash, err := NewSessionToken()
+	if err != nil {
+		t.Fatalf("new cookie session token: %v", err)
+	}
+	if _, err := store.CreateSession(ctx, user.ID, cookieHash, time.Hour); err != nil {
+		t.Fatalf("create cookie session: %v", err)
+	}
+	cookieLogoutReq := httptest.NewRequest(http.MethodDelete, "/api/auth/session", nil)
+	cookieLogoutReq.AddCookie(&http.Cookie{Name: SessionCookieName, Value: cookieToken})
+	cookieLogoutReq.AddCookie(&http.Cookie{Name: authCSRFCookieName, Value: "cookie-csrf-token"})
+	cookieLogoutReq.Header.Set(authCSRFHeaderName, "cookie-csrf-token")
+	cookieLogoutRec := httptest.NewRecorder()
+	handler.APILogout(cookieLogoutRec, cookieLogoutReq)
+	if cookieLogoutRec.Code != http.StatusNoContent {
+		t.Fatalf("cookie APILogout status = %d body = %s", cookieLogoutRec.Code, cookieLogoutRec.Body.String())
+	}
+	if got := cookieLogoutRec.Result().Cookies(); len(got) == 0 || got[0].Name != SessionCookieName || got[0].MaxAge != -1 {
+		t.Fatalf("cookie APILogout did not clear session cookie: %#v", got)
 	}
 }
 
@@ -234,7 +270,7 @@ func TestRegistrationAndVerificationFlow(t *testing.T) {
 	handler := &Handler{
 		store:            store,
 		cookieDomain:     "nacfson.cloud",
-		sessionTTL:      time.Hour,
+		sessionTTL:       time.Hour,
 		tmpl:             tmpl,
 		allowedRedirects: []*url.URL{parsedAllowedRedirect},
 	}
@@ -554,7 +590,7 @@ func TestLoginFormRedirectWhitelist(t *testing.T) {
 	handler := &Handler{
 		store:            store,
 		cookieDomain:     "nacfson.cloud",
-		sessionTTL:      time.Hour,
+		sessionTTL:       time.Hour,
 		tmpl:             tmpl,
 		allowedRedirects: []*url.URL{parsedAllowed},
 	}
@@ -584,7 +620,6 @@ func TestLoginFormRedirectWhitelist(t *testing.T) {
 		t.Errorf("LoginForm output missing default return URL")
 	}
 }
-
 
 func TestVerifyEmailAllowedRedirects(t *testing.T) {
 	dsn := os.Getenv("AUTH_DATABASE_URL")

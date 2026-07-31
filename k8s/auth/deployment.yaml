@@ -36,6 +36,8 @@ spec:
                 name: auth-db-secrets
             - secretRef:
                 name: auth-bootstrap
+            - secretRef:
+                name: auth-session-secrets
           env:
             - name: PORT
               value: "8080"

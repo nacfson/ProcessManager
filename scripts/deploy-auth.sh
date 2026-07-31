@@ -26,6 +26,7 @@ kubectl apply -f k8s/data/namespace.yaml
 echo "==> Applying auth secrets and databases"
 kubectl apply -f k8s/auth/secret.yaml
 kubectl apply -f k8s/auth/bootstrap-secret.yaml
+kubectl apply -f k8s/auth/session-secret.yaml
 kubectl apply -f k8s/auth/postgres.yaml
 kubectl apply -f k8s/data/secret.yaml
 kubectl apply -f k8s/data/postgres.yaml

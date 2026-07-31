@@ -264,6 +264,7 @@
             <!-- Login Form -->
             <form id="auth-form" method="POST" action="/login">
                 <input type="hidden" name="return_to" value="{{.ReturnTo}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
 
                 <!-- Email -->
                 <div class="form-group">

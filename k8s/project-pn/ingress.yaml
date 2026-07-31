@@ -4,9 +4,9 @@ metadata:
   name: project-pn
   namespace: project-pn
   annotations:
-    # Project PN uses bearer-token auth validated by its own backend;
-    # cookie-based ingress auth is disabled so API calls with Authorization
-    # headers reach the backend instead of being rejected here.
+    # The SPA shell remains public. Project PN's backend authenticates /api
+    # requests from the shared nacfson_session cookie (or native bearer
+    # tokens) after the browser returns from central auth.
 spec:
   ingressClassName: nginx
   rules:

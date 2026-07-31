@@ -15,6 +15,17 @@ document.addEventListener('DOMContentLoaded', function() {
             event.detail.headers['X-CSRF-Token'] = csrfCookie.split('=')[1];
         }
     });
+
+    var authCsrfCookie = document.cookie.split('; ').find(function(c) { return c.startsWith('nacfson_auth_csrf='); });
+    if (authCsrfCookie) {
+        var authCsrfToken = authCsrfCookie.substring('nacfson_auth_csrf='.length);
+        document.querySelectorAll('form[action*="/logout"]').forEach(function(form) {
+            var input = form.querySelector('input[name="csrf_token"]');
+            if (input) {
+                input.value = authCsrfToken;
+            }
+        });
+    }
 });
 </script>
     <style>
@@ -76,6 +87,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 </span>
                 <form action="https://{{.AuthHostWithPort}}/logout" method="POST" style="margin: 0; display: inline;">
                     <input type="hidden" name="return_to" value="https://{{.ManagerHost}}/">
+                    <input type="hidden" name="csrf_token" value="">
                     <button type="submit" class="btn" style="background: rgba(248, 113, 113, 0.1); border: 1px solid rgba(248, 113, 113, 0.2); color: var(--danger); padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.background='rgba(248, 113, 113, 0.2)'" onmouseout="this.style.background='rgba(248, 113, 113, 0.1)'">Logout</button>
                 </form>
             {{end}}
