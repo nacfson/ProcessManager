@@ -1,10 +1,14 @@
 # Compiled binaries
-auth
+/auth
 tmp/
 
 # OS files
 .DS_Store
 
 # Local secrets – never commit
+.env
+.env.*
+!.env.example
 k8s/secrets.local.yaml
 k8s/*.local.*
+*.tar.gz

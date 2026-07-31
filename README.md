@@ -47,7 +47,22 @@ The dashboard expects either:
 - A valid `~/.kube/config` pointing at a cluster, or
 - To be run inside a pod with a ServiceAccount.
 
+## Remote Compose (single instance / central auth)
+
+For a private cloud VM without the home-lab Kubernetes nodes, use Docker Compose:
+
+```bash
+# pull published image (or ./scripts/push-ghcr.sh to rebuild/publish)
+docker pull ghcr.io/nacfson/processmanager:latest
+cp .env.example .env && chmod 600 .env    # or Bitwarden: ./scripts/remote-up.sh --bws
+./scripts/remote-up.sh
+```
+
+See [deploy/README.md](deploy/README.md) for Bitwarden injection, GHCR push, and consumer app wiring.
+
 ## Build & Push Image
+
+### Local registry (home lab)
 
 ```bash
 # Build for the cluster (image is pushed to the local registry at 192.168.219.100:5000)
@@ -61,6 +76,19 @@ If Docker Desktop refuses the insecure registry, add this to `~/.docker/daemon.j
   "insecure-registries": ["192.168.219.100:5000"]
 }
 ```
+
+### GHCR (cloud / remote)
+
+```bash
+# Multi-arch (amd64 + arm64) — recommended for mixed or ARM hosts
+export GHCR_TOKEN=ghp_...   # PAT with write:packages
+./scripts/push-ghcr.sh
+
+# Or a specific version tag
+./scripts/push-ghcr.sh v0.1.0
+```
+
+Then on the remote host set `PROCESSMANAGER_IMAGE=ghcr.io/nacfson/processmanager:latest` in `.env` (or Bitwarden) and run Compose / `./scripts/deploy-auth-remote.sh`.
 
 ## Set Up the Cluster
 
