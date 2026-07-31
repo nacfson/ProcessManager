@@ -47,6 +47,16 @@ spec:
                 secretKeyRef:
                   name: project-pn-secrets
                   key: DEEPSEEK_MODEL
+            - name: ENRICH_SOURCE_LANG
+              valueFrom:
+                configMapKeyRef:
+                  name: project-pn-language
+                  key: SOURCE_LANG
+            - name: ENRICH_DISPLAY_LANG
+              valueFrom:
+                configMapKeyRef:
+                  name: project-pn-language
+                  key: DISPLAY_LANG
           volumeMounts:
             - name: script
               mountPath: /app

@@ -85,9 +85,15 @@ spec:
                   key: ENRICH_FALLBACK_MODEL
                   optional: true
             - name: DEFAULT_TARGET_LANG
-              value: "en"
+              valueFrom:
+                configMapKeyRef:
+                  name: project-pn-language
+                  key: SOURCE_LANG
             - name: DEFAULT_DEFINITION_LANG
-              value: "ko"
+              valueFrom:
+                configMapKeyRef:
+                  name: project-pn-language
+                  key: DISPLAY_LANG
             - name: EMAIL_PROVIDER
               valueFrom:
                 secretKeyRef:
