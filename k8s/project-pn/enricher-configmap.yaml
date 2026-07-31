@@ -8,10 +8,11 @@ data:
     #!/usr/bin/env python3
     """Small OpenAI-compatible dictionary enricher for Project PN staging.
 
-    This is a no-key staging fallback for English target vocabulary only. It
-    returns the chat-completions envelope expected by backend/internal/enrich/openai.go,
-    using public dictionary data for English definitions and a public translate
-    endpoint for display text.
+    This no-key staging fallback serves one active source/display language pair
+    configured through ENRICH_SOURCE_LANG and ENRICH_DISPLAY_LANG. Requests may
+    still provide a display language in the prompt. It returns the
+    chat-completions envelope expected by backend/internal/enrich/openai.go,
+    using public dictionary data and a public translate endpoint.
     """
 
     import json
@@ -20,6 +21,20 @@ data:
     import urllib.parse
     import urllib.request
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    LANGUAGE_CODE_PATTERN = r"[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})?"
+    LANGUAGE_CODE_RE = re.compile(r"^" + LANGUAGE_CODE_PATTERN + r"$")
+
+
+    def normalize_language_code(value: str, fallback: str) -> str:
+        candidate = (value or "").strip().replace("_", "-")
+        if not LANGUAGE_CODE_RE.fullmatch(candidate):
+            return fallback
+        return candidate.lower()
+
+
+    SOURCE_LANG = normalize_language_code(os.environ.get("ENRICH_SOURCE_LANG"), "en")
+    DISPLAY_LANG = normalize_language_code(os.environ.get("ENRICH_DISPLAY_LANG"), "ko")
 
     VALID_POS = {
         "noun",
@@ -42,10 +57,15 @@ data:
             return json.loads(response.read().decode("utf-8", "replace"))
 
 
-    def translate(text: str, target: str = "ko", source: str = "en") -> str:
+    def translate(text: str, target: str = DISPLAY_LANG, source: str = SOURCE_LANG) -> str:
         text = (text or "").strip()
         if not text:
             return ""
+
+        target = normalize_language_code(target, DISPLAY_LANG)
+        source = normalize_language_code(source, SOURCE_LANG)
+        if source == target:
+            return text
 
         query = urllib.parse.urlencode(
             {"client": "gtx", "sl": source, "tl": target, "dt": "t", "q": text}
@@ -69,14 +89,38 @@ data:
 
 
     def parse_target_lang(prompt: str) -> str:
-        match = re.search(r"native_short_definition in language code:\s*([a-zA-Z-]+)", prompt)
+        match = re.search(
+            r"native_short_definition in language code:\s*(" + LANGUAGE_CODE_PATTERN + r")",
+            prompt,
+            re.IGNORECASE,
+        )
         if match:
-            return match.group(1).lower()
+            return normalize_language_code(match.group(1), DISPLAY_LANG)
 
-        match = re.search(r"Translate into display language code:\s*([a-zA-Z-]+)", prompt)
+        match = re.search(
+            r"Translate into display language code:\s*(" + LANGUAGE_CODE_PATTERN + r")",
+            prompt,
+            re.IGNORECASE,
+        )
         if match:
-            return match.group(1).lower()
-        return "ko"
+            return normalize_language_code(match.group(1), DISPLAY_LANG)
+        return DISPLAY_LANG
+
+
+    def parse_source_lang(prompt: str) -> str:
+        patterns = (
+            r"(?:source|vocabulary|target)[ _-]+language(?:[ _-]+code)?\s*(?::|=|\bis\b)\s*("
+            + LANGUAGE_CODE_PATTERN
+            + r")",
+            r"(?:source|vocabulary|target)_(?:language|lang)(?:_code)?\s*[:=]\s*("
+            + LANGUAGE_CODE_PATTERN
+            + r")",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, prompt, re.IGNORECASE)
+            if match:
+                return normalize_language_code(match.group(1), SOURCE_LANG)
+        return SOURCE_LANG
 
 
     def parse_pos_hint(prompt: str) -> str:
@@ -110,11 +154,28 @@ data:
         return samples[index % len(samples)]
 
 
-    def dictionary_entries(word: str, pos_hint: str = "", target_lang: str = "ko"):
+    def source_example_for(word: str, pos: str, index: int, source_lang: str) -> str:
+        sentence = example_for(word, pos, index)
+        if source_lang == "en":
+            return sentence
+        return translate(sentence, source_lang, "en") or sentence
+
+
+    def dictionary_entries(
+        word: str,
+        pos_hint: str = "",
+        target_lang: str = DISPLAY_LANG,
+        source_lang: str = SOURCE_LANG,
+    ):
+        target_lang = normalize_language_code(target_lang, DISPLAY_LANG)
+        source_lang = normalize_language_code(source_lang, SOURCE_LANG)
         raw_entries = []
         try:
             raw_entries = fetch_json(
-                "https://api.dictionaryapi.dev/api/v2/entries/en/" + urllib.parse.quote(word)
+                "https://api.dictionaryapi.dev/api/v2/entries/"
+                + urllib.parse.quote(source_lang, safe="")
+                + "/"
+                + urllib.parse.quote(word, safe="")
             )
         except Exception:
             raw_entries = []
@@ -136,8 +197,8 @@ data:
                     examples = []
                     source_examples = [
                         (item.get("example") or "").strip(),
-                        example_for(word, pos, 1),
-                        example_for(word, pos, 2),
+                        source_example_for(word, pos, 1, source_lang),
+                        source_example_for(word, pos, 2, source_lang),
                     ]
                     for index, sentence in enumerate(source_examples):
                         if not sentence:
@@ -145,7 +206,7 @@ data:
                         examples.append(
                             {
                                 "sentence": sentence,
-                                "translation": translate(sentence, target_lang),
+                                "translation": translate(sentence, target_lang, source_lang),
                                 "difficulty": ["easy", "medium", "hard"][min(index, 2)],
                             }
                         )
@@ -155,8 +216,8 @@ data:
                             "definition": definition,
                             "short_definition": short,
                             "cefr_level": "B1",
-                            "native_definition": translate(definition, target_lang),
-                            "native_short_definition": translate(short, target_lang),
+                            "native_definition": translate(definition, target_lang, source_lang),
+                            "native_short_definition": translate(short, target_lang, source_lang),
                             "examples": examples[:3],
                         }
                     )
@@ -167,8 +228,10 @@ data:
         if not grouped:
             pos = pos_hint or "noun"
             definition = f"A vocabulary item meaning {word}."
+            if source_lang != "en":
+                definition = translate(definition, source_lang, "en") or definition
             short = short_definition(definition)
-            sentence = example_for(word, pos, 0)
+            sentence = source_example_for(word, pos, 0, source_lang)
             grouped.append(
                 {
                     "lemma": word,
@@ -178,12 +241,12 @@ data:
                             "definition": definition,
                             "short_definition": short,
                             "cefr_level": "B1",
-                            "native_definition": translate(definition, target_lang),
-                            "native_short_definition": translate(short, target_lang),
+                            "native_definition": translate(definition, target_lang, source_lang),
+                            "native_short_definition": translate(short, target_lang, source_lang),
                             "examples": [
                                 {
                                     "sentence": sentence,
-                                    "translation": translate(sentence, target_lang),
+                                    "translation": translate(sentence, target_lang, source_lang),
                                     "difficulty": "easy",
                                 }
                             ],
@@ -197,6 +260,7 @@ data:
 
     def translate_prompt(prompt: str):
         target_lang = parse_target_lang(prompt)
+        source_lang = parse_source_lang(prompt)
         blocks = re.split(r"\n(?=Sense \d+ definition)", prompt)
         senses = []
         for block in blocks[1:] if len(blocks) > 1 else []:
@@ -207,9 +271,12 @@ data:
             short = short_match.group(1).strip() if short_match else definition
             senses.append(
                 {
-                    "definition": translate(definition, target_lang),
-                    "short_definition": translate(short, target_lang),
-                    "examples": [{"translation": translate(example.strip(), target_lang)} for example in examples],
+                    "definition": translate(definition, target_lang, source_lang),
+                    "short_definition": translate(short, target_lang, source_lang),
+                    "examples": [
+                        {"translation": translate(example.strip(), target_lang, source_lang)}
+                        for example in examples
+                    ],
                 }
             )
         return {"senses": senses}
@@ -309,7 +376,12 @@ data:
                 if "Translate into display language code:" in prompt:
                     content = translate_prompt(prompt)
                 else:
-                    content = dictionary_entries(parse_word(prompt), parse_pos_hint(prompt), parse_target_lang(prompt))
+                    content = dictionary_entries(
+                        parse_word(prompt),
+                        parse_pos_hint(prompt),
+                        parse_target_lang(prompt),
+                        parse_source_lang(prompt),
+                    )
 
                 self.send_json(
                     {

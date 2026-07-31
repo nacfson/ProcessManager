@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: project-pn-language
+  namespace: project-pn
+data:
+  # Change these two values to switch the single active vocabulary/display pair.
+  SOURCE_LANG: "en"
+  DISPLAY_LANG: "ko"
