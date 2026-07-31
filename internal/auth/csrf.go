@@ -68,6 +68,9 @@ func ValidCSRFToken(r *http.Request) bool {
 
 func (h *Handler) requireCSRF(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, 1048576)
+		}
 		if !ValidCSRFToken(r) {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return

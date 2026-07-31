@@ -51,29 +51,30 @@ func TestEnsureCSRFTokenReusesExistingCookie(t *testing.T) {
 
 func TestValidCSRFTokenAcceptsFormAndHeader(t *testing.T) {
 	for _, test := range []struct {
-		name  string
-		setup func(*http.Request)
+		name string
+		req  *http.Request
 	}{
 		{
 			name: "form",
-			setup: func(req *http.Request) {
+			req: func() *http.Request {
 				form := url.Values{"csrf_token": {"same-token"}}
-				req.Body = http.NoBody
-				req.URL.RawQuery = form.Encode()
-			},
+				req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				return req
+			}(),
 		},
 		{
 			name: "header",
-			setup: func(req *http.Request) {
+			req: func() *http.Request {
+				req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 				req.Header.Set(authCSRFHeaderName, "same-token")
-			},
+				return req
+			}(),
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader(""))
-			req.AddCookie(&http.Cookie{Name: authCSRFCookieName, Value: "same-token"})
-			test.setup(req)
-			if !ValidCSRFToken(req) {
+			test.req.AddCookie(&http.Cookie{Name: authCSRFCookieName, Value: "same-token"})
+			if !ValidCSRFToken(test.req) {
 				t.Fatal("ValidCSRFToken = false, want true")
 			}
 		})

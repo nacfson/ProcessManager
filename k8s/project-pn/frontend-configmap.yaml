@@ -53,6 +53,9 @@ data:
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header Cookie $http_cookie;
           proxy_set_header Origin $http_origin;
+          proxy_set_header X-User-Id "";
+          proxy_set_header X-User-Email "";
+          proxy_set_header X-User-Roles "";
         }
 
         location / {
