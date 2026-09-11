@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: health
+  namespace: health
+  annotations:
+    # The SPA shell stays public: no nginx.ingress.kubernetes.io/auth-url on /.
+    # The health API authenticates /api requests itself from the shared
+    # nacfson_session cookie (validated against the Auth service), so the
+    # browser can load the shell and bootstrap through GET /api/me.
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: health.nacfson.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: health-frontend
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - health.nacfson.cloud
+      secretName: health-tls

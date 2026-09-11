@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: health-api
+  namespace: health
+spec:
+  selector:
+    app.kubernetes.io/name: health-api
+    app.kubernetes.io/part-of: health
+  ports:
+    - port: 8080
+      targetPort: 8080

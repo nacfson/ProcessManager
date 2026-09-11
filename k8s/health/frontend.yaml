@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-frontend
+  namespace: health
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: health-frontend
+      app.kubernetes.io/part-of: health
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: health-frontend
+        app.kubernetes.io/part-of: health
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        # nginx.conf is baked into the image (upstream health-api:8080);
+        # unlike project-pn there is no nginx ConfigMap to mount.
+        - name: nginx
+          image: 192.168.219.100:5000/health-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10

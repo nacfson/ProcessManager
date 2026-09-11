@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-api
+  namespace: health
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: health-api
+      app.kubernetes.io/part-of: health
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: health-api
+        app.kubernetes.io/part-of: health
+    spec:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        - name: api
+          image: 192.168.219.100:5000/health-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_ADDR
+              value: ":8080"
+            - name: MIGRATIONS_PATH
+              value: file://db/migrations
+            # Calendar-day filters default to Asia/Seoul unless overridden.
+            - name: TZ
+              value: Asia/Seoul
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: health-secrets
+                  key: DATABASE_URL
+            - name: APP_PUBLIC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: health-secrets
+                  key: APP_PUBLIC_URL
+            - name: ALLOWED_ORIGINS
+              valueFrom:
+                secretKeyRef:
+                  name: health-secrets
+                  key: ALLOWED_ORIGINS
+            - name: CENTRAL_AUTH_URL
+              valueFrom:
+                secretKeyRef:
+                  name: health-secrets
+                  key: CENTRAL_AUTH_URL
+            - name: CENTRAL_AUTH_INTERNAL_URL
+              valueFrom:
+                secretKeyRef:
+                  name: health-secrets
+                  key: CENTRAL_AUTH_INTERNAL_URL
+            - name: AUTH_SESSION_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: health-secrets
+                  key: AUTH_SESSION_INTERNAL_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
