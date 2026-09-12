@@ -395,14 +395,21 @@ func (h *Handler) MagicConsume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	SetSessionCookie(w, sessToken, h.sessionTTL, h.cookieDomain)
-
 	returnTo := r.FormValue("return_to")
+	if returnTo == "" {
+		returnTo = r.FormValue("rd")
+	}
 	validatedReturnTo, err := validateReturnTo(returnTo, h.cookieDomain, h.allowedRedirects)
 	if err != nil {
 		validatedReturnTo = "/"
 	}
-	http.Redirect(w, r, validatedReturnTo, http.StatusFound)
+	if shouldIssueCookieForRedirect(validatedReturnTo) {
+		SetSessionCookie(w, sessToken, h.sessionTTL, h.cookieDomain)
+		http.Redirect(w, r, validatedReturnTo, http.StatusFound)
+		return
+	}
+	// Native custom-scheme handoff: opaque token in the query string.
+	http.Redirect(w, r, appendSessionTokenToRedirect(validatedReturnTo, sessToken), http.StatusFound)
 }
 
 // Logout clears the session.

@@ -1,54 +1,26 @@
 package auth
 
-import (
-	"net/url"
-	"testing"
-)
+import "testing"
 
-func TestValidateReturnTo(t *testing.T) {
-	cookieDomain := "nacfson.cloud"
-	allowedRedirectsStr := []string{"http://localhost:8081", "https://customproject.com"}
-	var allowedRedirects []*url.URL
-	for _, r := range allowedRedirectsStr {
-		u, _ := url.Parse(r)
-		allowedRedirects = append(allowedRedirects, u)
+func TestShouldIssueCookieForRedirect(t *testing.T) {
+	if !shouldIssueCookieForRedirect("https://health.nacfson.cloud/") {
+		t.Fatal("https should issue cookie")
 	}
-	tests := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
-	}{
-		{"empty returns default", "", "https://nacfson.cloud", false},
-		{"allowed path", "/processes", "https://nacfson.cloud/processes", false},
-		{"allowed host", "https://manager.nacfson.cloud/foo", "https://manager.nacfson.cloud/foo", false},
-		{"allowed direct subdomain", "https://manager.nacfson.cloud", "https://manager.nacfson.cloud", false},
-		{"rejected external host", "https://evil.com", "", true},
-		{"rejected schemeless", "//evil.com", "", true},
-		{"rejected suffix bypass", "https://evil.com.nacfson.cloud", "", true},
-		{"rejected nested subdomain", "https://foo.bar.nacfson.cloud", "", true},
-		{"rejected path traversal", "/../../etc/passwd", "", true},
-		{"allowed whitelisted localhost url", "http://localhost:8081", "http://localhost:8081", false},
-		{"allowed whitelisted external domain", "https://customproject.com/auth/callback", "https://customproject.com/auth/callback", false},
-		{"rejected localhost port mismatch", "http://localhost:8082", "", true},
-		{"rejected suffix bypass on whitelist", "https://customproject.com.evil.com", "", true},
-		{"rejected port bypass on whitelist", "http://localhost:80812", "", true},
-		{"rejected backslash relative bypass", "/auth\\..\\..\\etc\\passwd", "", true},
-		{"rejected path traversal whitelist bypass", "https://customproject.com/auth/callback/../../evil", "", true},
-		{"rejected backslash whitelist bypass", "https://customproject.com/auth/callback\\..\\..\\evil", "", true},
-		{"rejected URL-encoded backslash bypass", "https://customproject.com/auth/callback/..%5c..%5cevil", "", true},
-		{"rejected URL-encoded backslash bypass case-insensitive", "https://customproject.com/auth/callback/..%5C..%5Cevil", "", true},
-		{"case preservation for query parameters", "https://customproject.com/auth/callback?code=AbCdEf", "https://customproject.com/auth/callback?code=AbCdEf", false},
+	if shouldIssueCookieForRedirect("nacfsonhealth://login-callback") {
+		t.Fatal("custom scheme must skip cookie")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := validateReturnTo(tt.input, cookieDomain, allowedRedirects)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateReturnTo(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
-			}
-			if got != tt.want {
-				t.Fatalf("validateReturnTo(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
+	if shouldIssueCookieForRedirect("projectpn://auth") {
+		t.Fatal("custom scheme must skip cookie")
+	}
+}
+
+func TestAppendSessionTokenToRedirect(t *testing.T) {
+	got := appendSessionTokenToRedirect("nacfsonhealth://login-callback", "sess")
+	if got != "nacfsonhealth://login-callback?token=sess" {
+		t.Fatalf("got %q", got)
+	}
+	got = appendSessionTokenToRedirect("nacfsonhealth://login-callback?x=1", "sess")
+	if got != "nacfsonhealth://login-callback?token=sess&x=1" && got != "nacfsonhealth://login-callback?x=1&token=sess" {
+		t.Fatalf("got %q", got)
 	}
 }

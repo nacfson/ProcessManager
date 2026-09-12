@@ -24,8 +24,8 @@ func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []*url.URL
 
 	for _, uPattern := range allowedRedirects {
 		uReturn := u
-		if strings.ToLower(uReturn.Scheme) == strings.ToLower(uPattern.Scheme) && 
-		   strings.ToLower(uReturn.Host) == strings.ToLower(uPattern.Host) {
+		if strings.ToLower(uReturn.Scheme) == strings.ToLower(uPattern.Scheme) &&
+			strings.ToLower(uReturn.Host) == strings.ToLower(uPattern.Host) {
 			rPath := uReturn.Path
 			if rPath == "" {
 				rPath = "/"
@@ -37,10 +37,10 @@ func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []*url.URL
 				pPath = "/"
 			}
 			pPath = path.Clean(pPath)
-			
+
 			rPath = strings.TrimSuffix(rPath, "/")
 			pPath = strings.TrimSuffix(pPath, "/")
-			
+
 			if rPath == pPath || strings.HasPrefix(rPath, pPath+"/") {
 				return returnTo, nil
 			}
@@ -83,4 +83,32 @@ func validateReturnTo(returnTo, cookieDomain string, allowedRedirects []*url.URL
 	}
 
 	return u.String(), nil
+}
+
+// shouldIssueCookieForRedirect is false for custom-scheme native handoffs
+// (cookies are useless there; the opaque session is returned in the URL).
+func shouldIssueCookieForRedirect(redirectURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(redirectURL))
+	if err != nil || u.Scheme == "" {
+		return true
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return true
+	default:
+		return false
+	}
+}
+
+// appendSessionTokenToRedirect adds ?token= / &token= for native custom-scheme
+// return URLs so Flutter can store the opaque Bearer.
+func appendSessionTokenToRedirect(redirectURL, sessionToken string) string {
+	u, err := url.Parse(strings.TrimSpace(redirectURL))
+	if err != nil || sessionToken == "" {
+		return redirectURL
+	}
+	q := u.Query()
+	q.Set("token", sessionToken)
+	u.RawQuery = q.Encode()
+	return u.String()
 }

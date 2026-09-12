@@ -38,10 +38,15 @@ The raw session cookie is hashed inside Auth and is never placed in a query
 string or returned to browser JavaScript. Project PN must reject client-supplied
 `X-User-*` headers and derive identity only from this validation response.
 
-Native clients may continue using the bearer-token API until a platform-specific
-browser handoff is implemented. Browser mutations must use Project PN's
-host-only CSRF token and validate the `Origin` header; `SameSite=Lax` is not
-sufficient protection between sibling subdomains.
+Native clients use the bearer-token API. For browser handoff, Auth may redirect to an
+allow-listed custom scheme (for example `nacfsonhealth://login-callback`) with
+`?token=<opaque-session>` instead of relying on the Secure cookie. Configure
+`AUTH_ALLOWED_REDIRECTS` accordingly. HTTPS sibling apps continue to receive the
+`nacfson_session` cookie only.
+
+Browser mutations must use Project PN's / health-web's host-only CSRF token and
+validate the `Origin` header; `SameSite=Lax` is not sufficient protection between
+sibling subdomains.
 
 `AUTH_SESSION_INTERNAL_TOKEN` is a separate secret from
 `AUTH_INTERNAL_TOKEN`. It grants only cookie-session validation and must never
