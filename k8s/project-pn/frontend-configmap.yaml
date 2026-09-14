@@ -31,6 +31,9 @@ data:
           proxy_set_header X-Forwarded-Proto $scheme;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Real-IP $remote_addr;
+          # Align with client 60s API wait budget (slow WiktApi + enrich fallback).
+          proxy_read_timeout 60s;
+          proxy_send_timeout 60s;
         }
 
         location = /readyz {
@@ -41,6 +44,8 @@ data:
           proxy_set_header X-Forwarded-Proto $scheme;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Real-IP $remote_addr;
+          proxy_read_timeout 60s;
+          proxy_send_timeout 60s;
         }
 
         location /api/ {
@@ -56,6 +61,9 @@ data:
           proxy_set_header X-User-Id "";
           proxy_set_header X-User-Email "";
           proxy_set_header X-User-Roles "";
+          # Align with client 60s API wait budget (slow WiktApi + enrich fallback).
+          proxy_read_timeout 60s;
+          proxy_send_timeout 60s;
         }
 
         location / {

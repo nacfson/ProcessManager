@@ -7,6 +7,9 @@ metadata:
     # The SPA shell remains public. Project PN's backend authenticates /api
     # requests from the shared nacfson_session cookie (or native bearer
     # tokens) after the browser returns from central auth.
+    # Match client 60s wait budget so slow word lookup/enrich is not cut at the edge.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
 spec:
   ingressClassName: nginx
   rules:
