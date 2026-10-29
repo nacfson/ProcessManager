@@ -1,0 +1,125 @@
+name: OpenBot PR review hook
+
+# Relays GitHub pull_request events to the OpenBot webhook routine
+# "PR review on push (GitHub hook)".
+#
+# Required repository secret:
+#   OPENBOT_HOOK_SECRET - the signing secret from OpenBot > Routines > settings
+#                         of the "PR review on push (GitHub hook)" routine.
+#
+# Verify without waiting for a PR: Actions tab -> this workflow -> Run workflow.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to replay (workflow_dispatch only)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: openbot-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Build and sign the OpenBot event
+        env:
+          HOOK_URL: https://signal.openbot.run/v1/webhooks/ee93a6c6-dd5c-4c7e-a8d4-168a619233b4
+          HOOK_SECRET: ${{ secrets.OPENBOT_HOOK_SECRET }}
+          GH_ACTION: ${{ github.event.action }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_FROM_INPUT: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOOK_SECRET:-}" ]; then
+            echo "::error::OPENBOT_HOOK_SECRET is not set for this repository."
+            exit 1
+          fi
+
+          # Send a trimmed payload: GitHub's full pull_request body can exceed
+          # the 64 KiB webhook limit, and the reviewer only needs these fields.
+          payload=$(jq -c '{
+            action: .action,
+            pull_request: {
+              number: .pull_request.number,
+              title: .pull_request.title,
+              draft: .pull_request.draft,
+              html_url: .pull_request.html_url,
+              updated_at: .pull_request.updated_at,
+              head: { sha: .pull_request.head.sha },
+              base: { repo: { full_name: .pull_request.base.repo.full_name } }
+            }
+          }' "$GITHUB_EVENT_PATH")
+
+          # workflow_dispatch has no pull_request in the event; fill it in.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            pr=${PR_FROM_INPUT:-0}
+            if [ "$pr" = "0" ] || [ -z "$pr" ]; then
+              echo "::error::Set pr_number when running this workflow manually."
+              exit 1
+            fi
+            meta=$(curl -sS --fail --max-time 20 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/pulls/$pr")
+            payload=$(jq -cn --argjson m "$meta" --arg full "$REPO" '{
+              action: "synchronize",
+              pull_request: {
+                number: $m.number,
+                title: $m.title,
+                draft: $m.draft,
+                html_url: $m.html_url,
+                updated_at: $m.updated_at,
+                head: { sha: $m.head.sha },
+                base: { repo: { full_name: $full } }
+              }
+            }')
+          fi
+
+          body=$(jq -cn --argjson p "$payload" --arg t "pull_request" \
+            '{type: $t, occurredAt: (now | todate), data: $p}')
+
+          if [ "$(printf '%s' "$body" | wc -c)" -gt 60000 ]; then
+            echo "::error::Trimmed payload is still too large."
+            exit 1
+          fi
+
+          ts=$(date +%s)
+          did="${RUN_ID}-${RUN_ATTEMPT}"
+
+          # OpenBot expects HMAC-SHA256 over "<timestamp>.<deliveryId>.<body>".
+          sig=$(printf '%s' "$ts.$did.$body" \
+            | openssl dgst -sha256 -hmac "$HOOK_SECRET" -r | awk '{print $1}')
+
+          code=$(curl -sS -o /tmp/resp.txt -w '%{http_code}' --max-time 20 --retry 2 \
+            -X POST "$HOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -H "x-openbot-timestamp: $ts" \
+            -H "x-openbot-delivery-id: $did" \
+            -H "x-openbot-signature: sha256=$sig" \
+            --data-binary "$body")
+
+          echo "OpenBot responded: $code"
+          cat /tmp/resp.txt 2>/dev/null || true
+
+          case "$code" in
+            200|202) echo "Accepted by OpenBot." ;;
+            401) echo "::error::OpenBot rejected the signature. Re-check OPENBOT_HOOK_SECRET."; exit 1 ;;
+            413) echo "::error::Payload too large for OpenBot."; exit 1 ;;
+            *)   echo "::error::OpenBot returned HTTP $code"; exit 1 ;;
+          esac
