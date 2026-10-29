@@ -36,7 +36,6 @@ jobs:
         env:
           HOOK_URL: https://signal.openbot.run/v1/webhooks/ee93a6c6-dd5c-4c7e-a8d4-168a619233b4
           HOOK_SECRET: ${{ secrets.OPENBOT_HOOK_SECRET }}
-          EVENT_PATH: ${{ github.event_path }}
           GH_ACTION: ${{ github.event.action }}
           EVENT_NAME: ${{ github.event_name }}
           PR_FROM_INPUT: ${{ inputs.pr_number }}
@@ -65,7 +64,7 @@ jobs:
               head: { sha: .pull_request.head.sha },
               base: { repo: { full_name: .pull_request.base.repo.full_name } }
             }
-          }' "$EVENT_PATH")
+          }' "$GITHUB_EVENT_PATH")
 
           # workflow_dispatch has no pull_request in the event; fill it in.
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
